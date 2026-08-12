@@ -1,26 +1,32 @@
-/**
- * Contrato entre conteúdo semântico e renderização. O futuro compositor gera
- * este snapshot; editor e exportador consomem exatamente o mesmo resultado.
- */
 export interface TextPosition {
   storyId: string;
   offset: number;
 }
 
-export interface LaidOutTextFrame {
-  pageId: string;
-  storyId: string;
-  from: TextPosition;
-  to: TextPosition;
+export interface LaidOutParagraphFragment {
+  kind: "paragraph";
+  blockId: string;
+  styleId: string;
+  text: string;
+  from: number;
+  to: number;
+  globalFrom: number;
+  globalTo: number;
+  lineCount: number;
+  startsParagraph: boolean;
+  endsParagraph: boolean;
+}
+
+export interface LaidOutPage {
+  physicalIndex: number;
+  fragments: LaidOutParagraphFragment[];
+  usedHeightMm: number;
 }
 
 export interface LayoutSnapshot {
   revision: number;
-  textFrames: LaidOutTextFrame[];
-  overflowStoryIds: string[];
+  storyId: string;
+  pages: LaidOutPage[];
+  sourceLength: number;
+  composeTimeMs: number;
 }
-
-export interface LayoutEngine {
-  compose(): Promise<LayoutSnapshot>;
-}
-

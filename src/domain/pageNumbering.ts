@@ -4,6 +4,7 @@ import type {
   PageNumbering,
   PageNumberFormat,
 } from "./document";
+import { pageSide } from "./pageGeometry";
 
 export interface ResolvedPageNumber {
   physicalIndex: number;
@@ -12,6 +13,11 @@ export interface ResolvedPageNumber {
   label: string | null;
   visible: boolean;
   rangeId: string | null;
+}
+
+export interface ResolvedPageNumberPlacement {
+  vertical: "top" | "bottom";
+  horizontal: "left" | "right" | "center";
 }
 
 function activeRange(
@@ -51,6 +57,22 @@ export function formatLogicalNumber(
   return format === "roman-lower" ? result.toLowerCase() : result;
 }
 
+export function resolvePageNumberPlacement(
+  physicalIndex: number,
+  placement: PageNumbering["placement"],
+): ResolvedPageNumberPlacement {
+  if (placement.horizontal === "center") {
+    return { vertical: placement.vertical, horizontal: "center" };
+  }
+
+  const side = pageSide(physicalIndex);
+  const horizontal = placement.horizontal === "outer"
+    ? side === "left" ? "left" : "right"
+    : side === "left" ? "right" : "left";
+
+  return { vertical: placement.vertical, horizontal };
+}
+
 export function resolvePageNumber(
   page: BookPage,
   physicalIndex: number,
@@ -71,14 +93,17 @@ export function resolvePageNumber(
   const logicalNumber =
     range.logicalStart + physicalIndex - range.fromPhysicalIndex;
   const inDisplayRange = numbering.display.logicalRanges.some(
-    ({ from, to }) => logicalNumber >= from && logicalNumber <= to,
+    ({ from, to }) =>
+      logicalNumber >= from && (to === undefined || logicalNumber <= to),
   );
   const policyVisible = numbering.display.logicalRanges.length
     ? inDisplayRange
     : numbering.display.defaultVisible;
   const visible =
     page.pageNumberVisible ??
-    (policyVisible && !numbering.display.hiddenPageIds.includes(page.id));
+    (policyVisible &&
+      !numbering.display.hiddenLogicalNumbers.includes(logicalNumber) &&
+      !numbering.display.hiddenPageIds.includes(page.id));
 
   return {
     physicalIndex,
@@ -89,4 +114,3 @@ export function resolvePageNumber(
     rangeId: range.id,
   };
 }
-

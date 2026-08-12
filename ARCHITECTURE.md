@@ -2,77 +2,119 @@
 
 ## Direção técnica
 
-O aplicativo usa Electron, React e TypeScript. O renderer do Chromium oferece a
-base mais direta para edição rica (ProseMirror no próximo ciclo), composição por
-CSS e exportação futura pelo mesmo motor de renderização. O processo principal
-do Electron fica restrito a recursos do sistema: janelas, arquivos e PDF. O
-renderer não recebe acesso direto a Node; toda capacidade nativa será exposta
-por uma API pequena no preload.
+O aplicativo usa Electron, React e TypeScript. O renderer do Chromium oferece
+edição, medição tipográfica por Canvas e uma futura rota de impressão usando a
+mesma projeção visual. O processo principal acessa arquivos e diálogos; o
+renderer isolado recebe somente uma API segura pelo preload.
 
 ## Camadas
 
-- `src/domain`: documento e regras puras, sem React, DOM ou Electron.
-- `src/layout`: contrato do compositor. Um `LayoutSnapshot` é a saída comum para
-  preview e PDF.
-- `src/persistence`: serialização e futuras migrações de schema.
-- `src/components`: interface e projeção visual do estado.
-- `electron`: janela desktop e futura ponte segura para abrir/salvar/exportar.
+- `src/domain`: documento, história e numeração, sem React ou Electron.
+- `src/layout`: medição, paginação e snapshot derivado.
+- `src/persistence`: JSON versionado, validação e compatibilidade.
+- `src/components`: editor único, páginas e controles.
+- `electron`: janela, arquivos nativos e importação TXT/DOCX.
 
-O estado persistente usa milímetros e pontos. Pixels existem somente na projeção
-visual. Índices físicos são baseados em zero internamente e apresentados como
-um número baseado em um para o usuário.
+O estado persistente usa milímetros e pontos. Pixels existem apenas na projeção
+visual. Índices físicos são base zero internamente e base um na interface.
 
-## Fluxo de texto futuro
+## História contínua
 
-O conteúdo principal é uma história contínua, representada por uma árvore
-semântica compatível com o modelo do ProseMirror. As páginas não armazenam
-editores independentes nem cópias do texto.
+`TextStory.content` é um documento semântico com blocos tipados:
 
-O compositor seguirá este fluxo:
+- `paragraph`: identidade estável, `styleId` e conteúdo inline preparado para
+  marcas futuras;
+- `pageBreak`: quebra manual persistente;
+- nós inline de texto que poderão receber `marks` no marco 0.5.
 
-1. Resolve estilos e frames disponíveis em ordem física.
-2. Mede blocos e linhas com as fontes já carregadas.
-3. Preenche cada frame e registra intervalos da história (`from`/`to`).
-4. Aplica regras de quebra, órfãs/viúvas e elementos ancorados.
-5. Emite um `LayoutSnapshot` imutável consumido pela tela e pela página de
-   impressão.
+Uma string plana é somente uma representação transitória usada pelas operações
+iniciais de edição e importação. O arquivo preserva a árvore estruturada. As
+quebras automáticas nunca entram nessa árvore.
 
-No início, o reflow pode ser integral. Depois ele será incremental a partir do
-primeiro bloco afetado, com virtualização dos spreads fora da tela. As quebras
-calculadas nunca entram na árvore semântica; quebra forçada é um nó explícito.
+## Editor e seleção
+
+O canvas possui uma única raiz `contenteditable` abrangendo todos os spreads.
+Cada fragmento visual declara offsets globais da história. Antes de uma edição,
+o editor converte a seleção DOM para offsets semânticos; depois do reflow,
+converte os offsets novamente para nós DOM e restaura seleção, foco e caret.
+
+Isso evita editores independentes por página. Digitação, Enter, exclusão,
+clipboard e histórico produzem operações sobre a história completa. `Ctrl+Enter`
+insere um bloco `pageBreak` real.
+
+Para o 0.5, as operações poderão migrar da representação plana transitória para
+transações estruturais sem trocar o contrato história → snapshot → páginas. As
+identidades de parágrafo e o `styleId` já existem; marcas inline já possuem um
+tipo reservado no domínio.
+
+Não foi adicionada uma engine rica no 0.4: ProseMirror/Tiptap ainda exigiria um
+plugin próprio para projetar uma seleção única sobre fragmentos paginados, e o
+marco atual não usa formatação. A camada mínima de edição está isolada em
+`StoryEditor`. No começo do 0.5 ela deve ser substituída por transações e
+histórico de uma engine madura; domínio, persistência e compositor não mudam.
+
+## Medição e paginação
+
+O compositor é uma função pura, parametrizada por `TextMeasurer`. No aplicativo,
+`CanvasTextMeasurer` usa `measureText` com a fonte/tamanho resolvidos. Nos testes,
+um medidor determinístico mantém os cenários reproduzíveis.
+
+Para cada página o motor:
+
+1. resolve o lado físico e as margens interna/externa;
+2. calcula a área útil, sem incluir sangria;
+3. quebra parágrafos em linhas por busca binária da maior faixa que cabe;
+4. consome a altura disponível conforme tamanho, line-height e espaçamentos;
+5. emite fragmentos com `blockId`, offsets locais/globais e estado de início/fim;
+6. honra `pageBreak` iniciando uma página nova.
+
+O 0.4 recompõe do começo ao fim. Assim, inserções empurram conteúdo para frente
+e exclusões o puxam de volta, removendo páginas vazias. `pages` é sincronizado
+com o snapshot; páginas com objetos futuros nunca serão removidas pelo
+sincronizador.
+
+## Tipografia
+
+Os valores não estão espalhados na UI. `ParagraphStyle` centraliza família,
+tamanho, altura de linha, alinhamento, espaços antes/depois e recuos. O estilo
+`body` é a configuração global inicial. Alterar tamanho da página, margens,
+espelhamento, história ou estilos invalida o snapshot.
 
 ## Numeração
 
-As três ideias são independentes:
+A numeração continua derivada de regras, nunca fixada por página:
 
-- posição da página em `pages` → índice físico;
-- `numbering.ranges` → número lógico e formato;
-- `numbering.display` + `BookPage.pageNumberVisible` → visibilidade.
+- índice físico: posição em `pages`;
+- número lógico: calculado por `numbering.ranges`;
+- visibilidade: regra global, intervalos e exceções.
 
-Assim, ocultar o fólio não interfere na contagem. Uma página pode iniciar a
-numeração, uma faixa lógica pode controlar onde mostrar os números e aberturas
-de capítulo podem ser exceções por ID. Novas faixas permitem reinícios ou
-algarismos romanos sem criar uma abstração pesada de seções.
+Depois de cada reflow, `pages` muda de quantidade e `resolvePageNumber` é chamado
+novamente por índice. Formato, intervalo, ocultação e posição interna/externa
+continuam funcionando.
 
-## Persistência e PDF
+## Persistência e compatibilidade
 
-O primeiro formato é JSON UTF-8, legível e versionado por `schemaVersion`.
-Quando imagens forem implementadas, o arquivo `.livro` poderá ser um ZIP com
-`document.json` e `assets/`, mantendo o mesmo modelo de domínio.
+O formato permanece JSON UTF-8 com `schemaVersion: 1`. O 0.3 já possuía
+`stories` e uma árvore genérica, portanto não houve mudança incompatível. Ao
+abrir um arquivo anterior, o codec adiciona IDs ausentes aos parágrafos,
+normaliza `styleId` e mantém os demais defaults defensivos. Conteúdo e regras
+são persistidos; fragmentos e quebras automáticas são recalculados.
 
-Preview e exportação devem consumir o mesmo `LayoutSnapshot` e as mesmas regras
-CSS. O exportador abrirá uma rota de impressão invisível, aguardará fontes e
-imagens, definirá `@page` e chamará `webContents.printToPDF` com tamanho CSS
-preferencial. Sangria deverá aumentar a mídia do PDF além da caixa de corte.
+TXT é decodificado como UTF-8, com suporte a BOM UTF-16, e suas quebras são
+normalizadas. DOCX usa `mammoth.extractRawText`; nesta fase somente texto e
+parágrafos relevantes são aproveitados.
 
-## Riscos controlados desde o início
+## Preview e PDF futuro
 
-- Cursor e seleção atravessando páginas: manter uma única árvore/estado de
-  edição e mapear suas posições aos fragmentos visuais.
-- Variação de fontes: embutir ou validar arquivos de fonte e só compor após
-  `document.fonts.ready`.
-- Desempenho: cachear medições, recompor a partir do ponto alterado e
-  virtualizar spreads.
-- Fidelidade: nunca manter implementações independentes de layout para tela e
-  PDF; testes visuais devem comparar páginas rasterizadas.
+`LayoutSnapshot` é o contrato comum. Hoje as páginas React o projetam; o futuro
+exportador deverá consumir as mesmas posições, estilos e geometria numa rota de
+impressão, evitando um segundo algoritmo de paginação.
 
+## Riscos e próximos endurecimentos
+
+- Refinar IME/composição e seleção em limites vazios de fragmentos.
+- Medir após `document.fonts.ready` e registrar/embutir fontes.
+- Adicionar órfãs, viúvas, hifenização e regras editoriais de bloco.
+- Tornar o reflow incremental a partir do primeiro bloco alterado.
+- Virtualizar spreads fora da viewport sem perder o mapeamento da seleção.
+- Migrar operações simples para transações ricas no 0.5.

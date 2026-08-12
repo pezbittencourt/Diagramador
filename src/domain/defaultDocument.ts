@@ -1,3 +1,4 @@
+
 import type { BookDocument, EdgeValues, PageSetup } from "./document";
 
 const defaultMargins: EdgeValues = {
@@ -21,6 +22,7 @@ export const PAGE_PRESETS = {
 
 export function createDefaultPageSetup(): PageSetup {
   return {
+    preset: "A5",
     ...PAGE_PRESETS.A5,
     margins: { ...defaultMargins },
     bleed: { ...defaultBleed },
@@ -37,11 +39,11 @@ export function createDefaultDocument(now = new Date()): BookDocument {
     createdAt: timestamp,
     updatedAt: timestamp,
     pageSetup: createDefaultPageSetup(),
-    pages: [
-      { id: crypto.randomUUID(), objects: [] },
-      { id: crypto.randomUUID(), objects: [] },
-      { id: crypto.randomUUID(), objects: [] },
-    ],
+    viewSettings: {
+      showMargins: true,
+      showBleed: true,
+    },
+    pages: [{ id: crypto.randomUUID(), objects: [] }],
     stories: [
       {
         id: "main-story",
@@ -51,6 +53,7 @@ export function createDefaultDocument(now = new Date()): BookDocument {
           content: [
             {
               type: "paragraph",
+              id: crypto.randomUUID(),
               attrs: { styleId: "body" },
               content: [{ type: "text", text: "Comece a escrever seu livro aqui." }],
             },
@@ -85,6 +88,7 @@ export function createDefaultDocument(now = new Date()): BookDocument {
       display: {
         defaultVisible: false,
         logicalRanges: [{ from: 3, to: 180 }],
+        hiddenLogicalNumbers: [],
         hiddenPageIds: [],
       },
       placement: {

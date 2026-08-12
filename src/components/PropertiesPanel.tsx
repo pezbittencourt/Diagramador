@@ -1,14 +1,18 @@
 import { PAGE_PRESETS } from "../domain/defaultDocument";
 import type { EdgeValues, PageSetup } from "../domain/document";
 import { NumberField } from "./NumberField";
+import { NumberingPanel } from "./NumberingPanel";
+import type { PageNumbering } from "../domain/document";
 
 interface PropertiesPanelProps {
   setup: PageSetup;
   showMargins: boolean;
   showBleed: boolean;
+  numbering: PageNumbering;
   onSetupChange: (setup: PageSetup) => void;
   onShowMarginsChange: (show: boolean) => void;
   onShowBleedChange: (show: boolean) => void;
+  onNumberingChange: (numbering: PageNumbering) => void;
 }
 
 function updateEdge(
@@ -46,13 +50,13 @@ export function PropertiesPanel({
   setup,
   showMargins,
   showBleed,
+  numbering,
   onSetupChange,
   onShowMarginsChange,
   onShowBleedChange,
+  onNumberingChange,
 }: PropertiesPanelProps) {
-  const preset = Object.entries(PAGE_PRESETS).find(
-    ([, size]) => size.width === setup.width && size.height === setup.height,
-  )?.[0];
+  const preset = setup.preset;
 
   return (
     <aside className="properties-panel" aria-label="Configurações da página">
@@ -71,17 +75,21 @@ export function PropertiesPanel({
             value={preset ?? "custom"}
             onChange={(event) => {
               const size = PAGE_PRESETS[event.currentTarget.value as keyof typeof PAGE_PRESETS];
-              if (size) onSetupChange({ ...setup, ...size });
+              if (size) onSetupChange({
+                ...setup,
+                ...size,
+                preset: event.currentTarget.value as "A4" | "A5",
+              });
             }}
           >
             <option value="A5">A5 — 148 × 210 mm</option>
             <option value="A4">A4 — 210 × 297 mm</option>
-            {!preset && <option value="custom">Personalizado</option>}
+            <option value="custom">Personalizado</option>
           </select>
         </label>
         <div className="field-grid">
-          <NumberField label="Largura" value={setup.width} min={50} onChange={(width) => onSetupChange({ ...setup, width })} />
-          <NumberField label="Altura" value={setup.height} min={50} onChange={(height) => onSetupChange({ ...setup, height })} />
+          <NumberField label="Largura" value={setup.width} min={50} onChange={(width) => onSetupChange({ ...setup, width, preset: "custom" })} />
+          <NumberField label="Altura" value={setup.height} min={50} onChange={(height) => onSetupChange({ ...setup, height, preset: "custom" })} />
         </div>
       </section>
 
@@ -122,7 +130,8 @@ export function PropertiesPanel({
           Linhas de sangria
         </label>
       </section>
+
+      <NumberingPanel numbering={numbering} onChange={onNumberingChange} />
     </aside>
   );
 }
-

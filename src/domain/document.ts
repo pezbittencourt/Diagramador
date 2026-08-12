@@ -7,7 +7,10 @@ export interface EdgeValues {
   outer: Millimeters;
 }
 
+export type PagePreset = "A4" | "A5" | "custom";
+
 export interface PageSetup {
+  preset: PagePreset;
   width: Millimeters;
   height: Millimeters;
   margins: EdgeValues;
@@ -35,17 +38,34 @@ export interface ParagraphStyle {
  * Conteúdo semântico contínuo. As quebras de página nunca são gravadas nesta
  * árvore: elas pertencem ao LayoutSnapshot, que pode ser recalculado.
  */
-export interface RichTextDocument {
-  type: "doc";
-  content: RichTextNode[];
-}
-
-export interface RichTextNode {
+export interface RichTextMark {
   type: string;
   attrs?: Record<string, unknown>;
-  content?: RichTextNode[];
-  text?: string;
-  marks?: Array<{ type: string; attrs?: Record<string, unknown> }>;
+}
+
+export interface InlineTextNode {
+  type: "text";
+  text: string;
+  marks?: RichTextMark[];
+}
+
+export interface ParagraphNode {
+  type: "paragraph";
+  id: string;
+  attrs: { styleId: string };
+  content: InlineTextNode[];
+}
+
+export interface PageBreakNode {
+  type: "pageBreak";
+  id: string;
+}
+
+export type StoryBlock = ParagraphNode | PageBreakNode;
+
+export interface RichTextDocument {
+  type: "doc";
+  content: StoryBlock[];
 }
 
 export interface TextStory {
@@ -87,7 +107,7 @@ export interface NumberingRange {
 
 export interface LogicalDisplayRange {
   from: number;
-  to: number;
+  to?: number;
 }
 
 export interface PageNumbering {
@@ -95,6 +115,9 @@ export interface PageNumbering {
   display: {
     defaultVisible: boolean;
     logicalRanges: LogicalDisplayRange[];
+    /** Exceções editoriais por número lógico, como aberturas de capítulo. */
+    hiddenLogicalNumbers: number[];
+    /** Exceções por identidade física, mantidas para regras futuras por página. */
     hiddenPageIds: string[];
   };
   placement: {
@@ -102,6 +125,11 @@ export interface PageNumbering {
     horizontal: "inner" | "outer" | "center";
     mirrorOnFacingPages: boolean;
   };
+}
+
+export interface DocumentViewSettings {
+  showMargins: boolean;
+  showBleed: boolean;
 }
 
 export interface AssetReference {
@@ -118,10 +146,10 @@ export interface BookDocument {
   createdAt: string;
   updatedAt: string;
   pageSetup: PageSetup;
+  viewSettings: DocumentViewSettings;
   pages: BookPage[];
   stories: TextStory[];
   styles: ParagraphStyle[];
   numbering: PageNumbering;
   assets: AssetReference[];
 }
-

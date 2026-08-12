@@ -4,5 +4,6 @@ dist-electron/
 release/
 .tools/
 .tmp/
+dist-benchmark/
 *.log
 .DS_Store
