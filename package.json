@@ -1,0 +1,34 @@
+{
+  "name": "livro-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Editor desktop pessoal para escrita e diagramação de livros.",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"npm:dev:electron\"",
+    "dev:electron": "wait-on http://127.0.0.1:5173 && tsc -p tsconfig.electron.json && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 node scripts/run-electron.cjs .",
+    "build": "tsc -p tsconfig.app.json && vite build && tsc -p tsconfig.electron.json",
+    "preview": "vite preview --host 127.0.0.1",
+    "start": "npm run build && node scripts/run-electron.cjs .",
+    "smoke": "npm run build && node scripts/run-electron.cjs scripts/smoke.cjs",
+    "test": "vitest run",
+    "check": "npm run test && npm run build"
+  },
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "concurrently": "^10.0.4",
+    "cross-env": "^10.1.0",
+    "electron": "^43.4.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1",
+    "vitest": "^4.1.10",
+    "wait-on": "^9.1.0"
+  }
+}
