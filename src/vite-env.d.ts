@@ -22,6 +22,17 @@ interface Window {
           };
         }
     >;
+    pickImage: () => Promise<
+      | { canceled: true }
+      | {
+          canceled: false;
+          image: {
+            fileName: string;
+            mimeType: "image/png" | "image/jpeg" | "image/webp";
+            data: string;
+          };
+        }
+    >;
     confirmReplaceManuscript: () => Promise<boolean>;
     saveDocument: (request: {
       content: string;

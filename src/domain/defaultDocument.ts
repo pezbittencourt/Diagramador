@@ -106,7 +106,7 @@ export function createDefaultStyles(): ParagraphStyle[] {
 export function createDefaultDocument(now = new Date()): BookDocument {
   const timestamp = now.toISOString();
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     id: crypto.randomUUID(),
     title: "Livro sem título",
     createdAt: timestamp,
@@ -115,7 +115,12 @@ export function createDefaultDocument(now = new Date()): BookDocument {
     viewSettings: {
       showMargins: true,
       showBleed: true,
+      showRulers: true,
+      showCustomGuides: true,
+      snapEnabled: true,
+      viewMode: "spread",
     },
+    guides: [],
     pages: [{ id: crypto.randomUUID(), objects: [] }],
     stories: [
       {

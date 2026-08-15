@@ -2,9 +2,10 @@ import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("livroStudio", {
   platform: process.platform,
-  version: "0.5.0",
+  version: "0.7.0",
   openDocument: () => ipcRenderer.invoke("document:open"),
   importManuscript: () => ipcRenderer.invoke("manuscript:import"),
+  pickImage: () => ipcRenderer.invoke("asset:pick-image"),
   confirmReplaceManuscript: () => ipcRenderer.invoke("manuscript:confirm-replace"),
   saveDocument: (request: {
     content: string;

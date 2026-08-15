@@ -20,7 +20,12 @@ describe("document persistence codec", () => {
         bleed: { top: 3, bottom: 3, inner: 4, outer: 5 },
         mirroredMargins: false,
       },
-      viewSettings: { showMargins: false, showBleed: true },
+      viewSettings: {
+        ...source.viewSettings,
+        showMargins: false,
+        showBleed: true,
+        viewMode: "single" as const,
+      },
       numbering: {
         ...source.numbering,
         ranges: [
@@ -81,7 +86,14 @@ describe("document persistence codec", () => {
     const parsed = parseDocument(JSON.stringify(legacyPayload));
 
     expect(parsed.pageSetup.preset).toBe("A5");
-    expect(parsed.viewSettings).toEqual({ showMargins: true, showBleed: true });
+    expect(parsed.viewSettings).toEqual({
+      showMargins: true,
+      showBleed: true,
+      showRulers: true,
+      showCustomGuides: true,
+      snapEnabled: true,
+      viewMode: "spread",
+    });
     expect(parsed.numbering.display.hiddenLogicalNumbers).toEqual([]);
     expect(parsed.stories[0].content.content[0].id).toEqual(expect.any(String));
   });
@@ -142,7 +154,7 @@ describe("document persistence codec", () => {
       : style);
 
     const opened = parseDocument(serializeDocument(document));
-    expect(opened.schemaVersion).toBe(2);
+    expect(opened.schemaVersion).toBe(3);
     expect(opened.styles.find((style) => style.id === "quote")?.fontSizePt).toBe(12.5);
     expect(opened.stories[0].content.content[0]).toEqual(paragraph);
   });
@@ -161,7 +173,7 @@ describe("document persistence codec", () => {
     };
 
     const migrated = parseDocument(JSON.stringify(payload));
-    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.schemaVersion).toBe(3);
     expect(migrated.styles.map((style) => style.id)).toEqual([
       "body", "chapter-title", "subtitle", "quote", "dedication",
     ]);
@@ -170,6 +182,55 @@ describe("document persistence codec", () => {
       italic: false,
       underline: false,
       color: "#222520",
+    });
+  });
+
+  it("H/Q: mantém asset incorporado, objeto e guia no round-trip do schema 3", () => {
+    const document = createDefaultDocument();
+    document.assets.push({
+      id: "asset-1",
+      fileName: "capa.png",
+      mimeType: "image/png",
+      encoding: "base64",
+      data: "aW1hZ2Vt",
+      pixelWidth: 1200,
+      pixelHeight: 800,
+    });
+    document.pages[0].objects.push({
+      id: "image-1",
+      type: "image",
+      anchorMode: "page",
+      assetId: "asset-1",
+      x: -3,
+      y: 12.5,
+      width: 90,
+      height: 60,
+      originalAspectRatio: 1.5,
+      lockAspectRatio: true,
+      zIndex: 4,
+    });
+    document.guides.push({ id: "guide-1", orientation: "vertical", positionMm: 37.5 });
+
+    expect(parseDocument(serializeDocument(document))).toEqual(document);
+  });
+
+  it.each([1, 2])("I: abre schema %i e aplica defaults de objetos e precisão", (schemaVersion) => {
+    const current = createDefaultDocument();
+    const legacy = {
+      ...current,
+      schemaVersion,
+      guides: undefined,
+      viewSettings: { showMargins: false, showBleed: true },
+    };
+    const opened = parseDocument(JSON.stringify(legacy));
+    expect(opened.schemaVersion).toBe(3);
+    expect(opened.guides).toEqual([]);
+    expect(opened.viewSettings).toMatchObject({
+      showMargins: false,
+      showRulers: true,
+      showCustomGuides: true,
+      snapEnabled: true,
+      viewMode: "spread",
     });
   });
 });

@@ -1,18 +1,38 @@
 import { PAGE_PRESETS } from "../domain/defaultDocument";
-import type { EdgeValues, PageSetup } from "../domain/document";
+import type { DocumentGuide, EdgeValues, PageSetup, PositionedImageObject } from "../domain/document";
+import type { PageAlignment, StackAction } from "../domain/objectGeometry";
 import { NumberField } from "./NumberField";
 import { NumberingPanel } from "./NumberingPanel";
 import type { PageNumbering } from "../domain/document";
+import { ObjectPropertiesPanel } from "./ObjectPropertiesPanel";
+import { PrecisionPanel } from "./PrecisionPanel";
 
 interface PropertiesPanelProps {
   setup: PageSetup;
   showMargins: boolean;
   showBleed: boolean;
   numbering: PageNumbering;
+  showRulers: boolean;
+  showCustomGuides: boolean;
+  snapEnabled: boolean;
+  guides: DocumentGuide[];
+  selectedObject?: { pageIndex: number; object: PositionedImageObject };
   onSetupChange: (setup: PageSetup) => void;
   onShowMarginsChange: (show: boolean) => void;
   onShowBleedChange: (show: boolean) => void;
   onNumberingChange: (numbering: PageNumbering) => void;
+  onShowRulersChange: (show: boolean) => void;
+  onShowCustomGuidesChange: (show: boolean) => void;
+  onSnapEnabledChange: (enabled: boolean) => void;
+  onAddGuide: (orientation: DocumentGuide["orientation"]) => void;
+  onGuideChange: (guide: DocumentGuide) => void;
+  onDeleteGuide: (guideId: string) => void;
+  onObjectMeasureChange: (measure: "x" | "y" | "width" | "height", value: number) => void;
+  onObjectAspectLockChange: (locked: boolean) => void;
+  onObjectStack: (action: StackAction) => void;
+  onObjectAlign: (alignment: PageAlignment) => void;
+  onDuplicateObject: () => void;
+  onDeleteObject: () => void;
 }
 
 function updateEdge(
@@ -51,10 +71,27 @@ export function PropertiesPanel({
   showMargins,
   showBleed,
   numbering,
+  showRulers,
+  showCustomGuides,
+  snapEnabled,
+  guides,
+  selectedObject,
   onSetupChange,
   onShowMarginsChange,
   onShowBleedChange,
   onNumberingChange,
+  onShowRulersChange,
+  onShowCustomGuidesChange,
+  onSnapEnabledChange,
+  onAddGuide,
+  onGuideChange,
+  onDeleteGuide,
+  onObjectMeasureChange,
+  onObjectAspectLockChange,
+  onObjectStack,
+  onObjectAlign,
+  onDuplicateObject,
+  onDeleteObject,
 }: PropertiesPanelProps) {
   const preset = setup.preset;
 
@@ -130,6 +167,32 @@ export function PropertiesPanel({
           Linhas de sangria
         </label>
       </section>
+
+      <PrecisionPanel
+        showRulers={showRulers}
+        showCustomGuides={showCustomGuides}
+        snapEnabled={snapEnabled}
+        guides={guides}
+        onShowRulersChange={onShowRulersChange}
+        onShowCustomGuidesChange={onShowCustomGuidesChange}
+        onSnapEnabledChange={onSnapEnabledChange}
+        onAddGuide={onAddGuide}
+        onGuideChange={onGuideChange}
+        onDeleteGuide={onDeleteGuide}
+      />
+
+      {selectedObject && (
+        <ObjectPropertiesPanel
+          object={selectedObject.object}
+          pageIndex={selectedObject.pageIndex}
+          onMeasureChange={onObjectMeasureChange}
+          onAspectLockChange={onObjectAspectLockChange}
+          onStack={onObjectStack}
+          onAlign={onObjectAlign}
+          onDuplicate={onDuplicateObject}
+          onDelete={onDeleteObject}
+        />
+      )}
 
       <NumberingPanel numbering={numbering} onChange={onNumberingChange} />
     </aside>

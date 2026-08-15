@@ -1,6 +1,6 @@
 {
   "name": "livro-studio",
-  "version": "0.5.0",
+  "version": "0.7.0",
   "private": true,
   "description": "Editor desktop pessoal para escrita e diagramação de livros.",
   "main": "dist-electron/main.js",
@@ -11,7 +11,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "start": "npm run build && node scripts/run-electron.cjs .",
     "smoke": "npm run build && node scripts/run-electron.cjs scripts/smoke.cjs",
-    "benchmark": "tsc -p tsconfig.electron.json && tsc --ignoreConfig --outDir .tmp/benchmark --rootDir src --module Node16 --moduleResolution Node16 --target ES2022 --skipLibCheck src/domain/defaultDocument.ts src/domain/document.ts src/domain/pageGeometry.ts src/domain/textFormatting.ts src/domain/textStory.ts src/layout/layoutTypes.ts src/layout/pagination.ts src/layout/textMeasurement.ts src/persistence/documentCodec.ts && node scripts/benchmark.cjs",
+    "benchmark": "tsc -p tsconfig.electron.json && tsc --ignoreConfig --outDir .tmp/benchmark --rootDir src --module Node16 --moduleResolution Node16 --target ES2022 --skipLibCheck src/domain/defaultDocument.ts src/domain/document.ts src/domain/objectGeometry.ts src/domain/pageGeometry.ts src/domain/textFormatting.ts src/domain/textStory.ts src/layout/layoutTypes.ts src/layout/pageSynchronization.ts src/layout/pagination.ts src/layout/spreads.ts src/layout/textMeasurement.ts src/persistence/documentCodec.ts && node scripts/benchmark.cjs",
     "test": "vitest run --exclude dist-electron/** --exclude dist-benchmark/**",
     "check": "npm run test && npm run build"
   },

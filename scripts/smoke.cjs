@@ -25,6 +25,14 @@ ipcMain.handle("document:open", () => persistedContent
 ipcMain.handle("document:confirm-unsaved", () => "discard");
 ipcMain.handle("manuscript:confirm-replace", () => true);
 ipcMain.handle("manuscript:import", () => ({ canceled: true }));
+ipcMain.handle("asset:pick-image", () => ({
+  canceled: false,
+  image: {
+    fileName: "smoke-image.png",
+    mimeType: "image/png",
+    data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XfJ8WQAAAABJRU5ErkJggg==",
+  },
+}));
 ipcMain.on("document:set-dirty", () => undefined);
 ipcMain.on("document:finish-close", () => undefined);
 
@@ -134,6 +142,121 @@ app.whenReady().then(async () => {
     setInput(document.querySelector('input[aria-label*="física inicial"]'), 1);
     await wait(450);
 
+    button('Inserir imagem').click();
+    await wait(180);
+    const imageInserted = document.querySelectorAll('.positioned-object').length;
+    const imageSelected = document.querySelector('.positioned-object.selected') !== null;
+    const activePageAfterSelection = Number(document.querySelector('.active-page').dataset.pageIndex);
+    const selectedObjectPage = Number(document.querySelector('.positioned-object.selected').closest('.page-shell').dataset.pageIndex);
+    setInput(document.querySelector('.object-properties input[aria-label="Largura em milímetros"]'), 40);
+    setInput(document.querySelector('input[aria-label="X em milímetros"]'), -3);
+    setInput(document.querySelector('input[aria-label="Y em milímetros"]'), 12);
+    await wait(100);
+    const resizeHandle = document.querySelector('.positioned-object.selected .resize-se');
+    const resizeBox = resizeHandle.getBoundingClientRect();
+    resizeHandle.setPointerCapture = () => undefined;
+    resizeHandle.releasePointerCapture = () => undefined;
+    resizeHandle.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true, cancelable: true, button: 0, buttons: 1, pointerId: 61,
+      clientX: resizeBox.left, clientY: resizeBox.top,
+    }));
+    await wait(30);
+    const activeResizeHandle = document.querySelector('.positioned-object.selected .resize-se');
+    activeResizeHandle.setPointerCapture = () => undefined;
+    activeResizeHandle.dispatchEvent(new PointerEvent('pointermove', {
+      bubbles: true, cancelable: true, buttons: 1, pointerId: 61,
+      clientX: resizeBox.left + 15, clientY: resizeBox.top + 15,
+    }));
+    await wait(30);
+    document.querySelector('.positioned-object.selected .resize-se').dispatchEvent(new PointerEvent('pointerup', {
+      bubbles: true, cancelable: true, button: 0, pointerId: 61,
+      clientX: resizeBox.left + 15, clientY: resizeBox.top + 15,
+    }));
+    await wait(80);
+    const widthAfterHandleResize = Number(document.querySelector('.object-properties input[aria-label="Largura em milímetros"]').value);
+    const imageBeforeDrag = document.querySelector('.positioned-object.selected');
+    const dragBox = imageBeforeDrag.getBoundingClientRect();
+    imageBeforeDrag.setPointerCapture = () => undefined;
+    imageBeforeDrag.releasePointerCapture = () => undefined;
+    imageBeforeDrag.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true, cancelable: true, button: 0, buttons: 1, pointerId: 71,
+      clientX: dragBox.left + 10, clientY: dragBox.top + 10,
+    }));
+    await wait(30);
+    const imageDuringDrag = document.querySelector('.positioned-object.selected');
+    imageDuringDrag.setPointerCapture = () => undefined;
+    imageDuringDrag.releasePointerCapture = () => undefined;
+    imageDuringDrag.dispatchEvent(new PointerEvent('pointermove', {
+      bubbles: true, cancelable: true, buttons: 1, pointerId: 71,
+      clientX: dragBox.left + 28, clientY: dragBox.top + 22,
+    }));
+    await wait(30);
+    const imageAfterMove = document.querySelector('.positioned-object.selected');
+    imageAfterMove.dispatchEvent(new PointerEvent('pointerup', {
+      bubbles: true, cancelable: true, button: 0, pointerId: 71,
+      clientX: dragBox.left + 28, clientY: dragBox.top + 22,
+    }));
+    await wait(120);
+    const draggedX = Number(document.querySelector('input[aria-label="X em milímetros"]').value);
+    const draggedY = Number(document.querySelector('input[aria-label="Y em milímetros"]').value);
+
+    button('Duplicar').click();
+    await wait(80);
+    const objectsAfterDuplicate = document.querySelectorAll('.positioned-object').length;
+    button('Fundo').click();
+    button('+ Vertical').click();
+    await wait(80);
+    const guidePosition = document.querySelector('input[aria-label^="Posição da guia vertical"]');
+    setInput(guidePosition, 35);
+    await wait(80);
+    const customGuides = document.querySelectorAll('.custom-guide-vertical').length;
+    setInput(document.querySelector('input[aria-label="X em milímetros"]'), 34.5);
+    await wait(40);
+    const snapObject = document.querySelector('.positioned-object.selected');
+    const snapBox = snapObject.getBoundingClientRect();
+    snapObject.setPointerCapture = () => undefined;
+    snapObject.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true, cancelable: true, button: 0, buttons: 1, pointerId: 81,
+      clientX: snapBox.left + 10, clientY: snapBox.top + 10,
+    }));
+    await wait(30);
+    const activeSnapObject = document.querySelector('.positioned-object.selected');
+    activeSnapObject.setPointerCapture = () => undefined;
+    activeSnapObject.dispatchEvent(new PointerEvent('pointermove', {
+      bubbles: true, cancelable: true, buttons: 1, pointerId: 81,
+      clientX: snapBox.left + 11, clientY: snapBox.top + 10,
+    }));
+    await wait(30);
+    document.querySelector('.positioned-object.selected').dispatchEvent(new PointerEvent('pointerup', {
+      bubbles: true, cancelable: true, button: 0, pointerId: 81,
+      clientX: snapBox.left + 11, clientY: snapBox.top + 10,
+    }));
+    await wait(80);
+    const snappedGuideX = Number(document.querySelector('input[aria-label="X em milímetros"]').value);
+
+    button('Página única').click();
+    await wait(100);
+    const singleModePages = document.querySelectorAll('.trim-page').length;
+    document.querySelector('button[aria-label="Próxima página"]').click();
+    await wait(80);
+    const activeSinglePage = Number(document.querySelector('.active-page').dataset.pageIndex);
+    button('Spread').click();
+    await wait(120);
+
+    const objectPageBeforeReflow = Number(document.querySelector('.positioned-object').closest('.page-shell').dataset.pageIndex);
+    const reflowRuns = document.querySelectorAll('[data-story-from]');
+    const reflowRun = reflowRuns[reflowRuns.length - 1];
+    const reflowNode = reflowRun.firstChild;
+    selection.setBaseAndExtent(reflowNode, reflowNode.textContent.length, reflowNode, reflowNode.textContent.length);
+    editor.focus();
+    const reflowPaste = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(reflowPaste, 'clipboardData', {
+      value: { getData: () => 'conteúdo para reflow '.repeat(350) }
+    });
+    editor.dispatchEvent(reflowPaste);
+    await wait(450);
+    const objectPageAfterReflow = Number(document.querySelector('.positioned-object').closest('.page-shell').dataset.pageIndex);
+
     const pagesBeforeSave = document.querySelectorAll('.trim-page').length;
     button('Salvar').click();
     await wait(180);
@@ -191,6 +314,23 @@ app.whenReady().then(async () => {
       canScrollVertically: viewport.scrollHeight > viewport.clientHeight,
       storyCharacters: [...document.querySelectorAll('[data-story-from]')]
         .reduce((total, node) => total + node.textContent.replace(/\u200b/g, '').length, 0),
+      imageInserted,
+      imageSelected,
+      activePageAfterSelection,
+      selectedObjectPage,
+      draggedX,
+      draggedY,
+      widthAfterHandleResize,
+      snappedGuideX,
+      objectsAfterDuplicate,
+      reopenedObjects: document.querySelectorAll('.positioned-object').length,
+      embeddedImages: document.querySelectorAll('.positioned-object img[src^="data:image/png;base64,"]').length,
+      customGuides,
+      reopenedGuideInputs: document.querySelectorAll('input[aria-label^="Posição da guia"]').length,
+      singleModePages,
+      activeSinglePage,
+      objectPageBeforeReflow,
+      objectPageAfterReflow,
     };
   })()`);
 
@@ -214,7 +354,17 @@ app.whenReady().then(async () => {
   assert(interactions.folios.includes("3"), "Editorial numbering did not follow rich-text reflow.");
   assert(interactions.canScrollHorizontally && interactions.canScrollVertically, "Canvas scrolling regressed at high zoom.");
   assert(interactions.storyCharacters > 30000, "Inserted manuscript text was lost.");
-  assert(persistedContent && JSON.parse(persistedContent).schemaVersion === 2, "Smoke project was not persisted with schema 2.");
+  assert(interactions.imageInserted === 1 && interactions.imageSelected, "Image insertion/selection failed.");
+  assert(interactions.activePageAfterSelection === interactions.selectedObjectPage, "Selecting an object did not activate its page.");
+  assert(interactions.draggedX !== -3 && interactions.draggedY !== 12, "Image drag did not update mm coordinates.");
+  assert(interactions.widthAfterHandleResize > 40, "Image resize handle did not update its size.");
+  assert(interactions.snappedGuideX === 35, "Image did not snap to the custom guide.");
+  assert(interactions.objectsAfterDuplicate === 2 && interactions.reopenedObjects === 2, "Image duplication did not survive save/open.");
+  assert(interactions.embeddedImages === 2, "Embedded image assets did not reopen.");
+  assert(interactions.customGuides > 0 && interactions.reopenedGuideInputs === 1, "Custom guide did not survive save/open.");
+  assert(interactions.singleModePages === 1 && interactions.activeSinglePage === 1, "Single-page navigation failed.");
+  assert(interactions.objectPageAfterReflow === interactions.objectPageBeforeReflow, "Text reflow moved a page-fixed object.");
+  assert(persistedContent && JSON.parse(persistedContent).schemaVersion === 3, "Smoke project was not persisted with schema 3.");
 
   await window.webContents.executeJavaScript(`(async () => {
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;

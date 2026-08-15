@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
 import { readDocumentFile, writeDocumentFile } from "./documentFiles.js";
 import { importManuscriptFile } from "./manuscriptFiles.js";
+import { importImageFile } from "./imageFiles.js";
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 const dirtyWindows = new WeakMap<BrowserWindow, boolean>();
@@ -68,6 +69,22 @@ ipcMain.handle("manuscript:import", async (event) => {
   });
   if (result.canceled || !result.filePaths[0]) return { canceled: true };
   return { canceled: false, manuscript: await importManuscriptFile(result.filePaths[0]) };
+});
+
+ipcMain.handle("asset:pick-image", async (event) => {
+  const window = windowFromSender(event.sender);
+  const result = await dialog.showOpenDialog(window, {
+    title: "Inserir imagem",
+    properties: ["openFile"],
+    filters: [
+      { name: "Imagens", extensions: ["png", "jpg", "jpeg", "webp"] },
+      { name: "PNG", extensions: ["png"] },
+      { name: "JPEG", extensions: ["jpg", "jpeg"] },
+      { name: "WebP", extensions: ["webp"] },
+    ],
+  });
+  if (result.canceled || !result.filePaths[0]) return { canceled: true };
+  return { canceled: false, image: await importImageFile(result.filePaths[0]) };
 });
 
 ipcMain.handle("manuscript:confirm-replace", async (event) => {

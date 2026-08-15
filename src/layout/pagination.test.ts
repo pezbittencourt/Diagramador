@@ -108,13 +108,39 @@ describe("automatic text pagination", () => {
     pages[4].objects.push({
       id: "future-image",
       type: "image",
+      anchorMode: "page",
+      assetId: "future-asset",
       x: 0,
       y: 0,
       width: 20,
       height: 20,
+      originalAspectRatio: 1,
+      lockAspectRatio: true,
       zIndex: 1,
     });
     expect(synchronizePhysicalPages(pages, 1)).toHaveLength(5);
+  });
+
+  it("J/K: keeps an object on physical page 10 when text shrinks from eight pages", () => {
+    const document = createDefaultDocument();
+    const pages = synchronizePhysicalPages(document.pages, 10);
+    pages[9].objects.push({
+      id: "fixed-page-ten",
+      type: "image",
+      anchorMode: "page",
+      assetId: "asset-ten",
+      x: -3,
+      y: 20,
+      width: 50,
+      height: 25,
+      originalAspectRatio: 2,
+      lockAspectRatio: true,
+      zIndex: 0,
+    });
+    const afterReflow = synchronizePhysicalPages(pages, 8);
+    expect(afterReflow).toHaveLength(10);
+    expect(afterReflow[9].objects[0]).toMatchObject({ id: "fixed-page-ten", x: -3 });
+    expect(afterReflow[7].objects).toEqual([]);
   });
 
   it("J: editorial numbering is derived again after automatic pagination", () => {

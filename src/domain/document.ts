@@ -83,17 +83,31 @@ export interface TextStory {
   content: RichTextDocument;
 }
 
-export interface PositionedObject {
+interface PositionedObjectBase {
   id: string;
-  type: "image" | "text-frame";
+  /** Objetos do schema 3 são fixos à página física que os contém. */
+  anchorMode: "page";
   x: Millimeters;
   y: Millimeters;
   width: Millimeters;
   height: Millimeters;
   zIndex: number;
-  assetId?: string;
-  storyId?: string;
 }
+
+export interface PositionedImageObject extends PositionedObjectBase {
+  type: "image";
+  assetId: string;
+  originalAspectRatio: number;
+  lockAspectRatio: boolean;
+}
+
+/** Reserva explícita para um tipo futuro, ainda sem interface de criação. */
+export interface PositionedTextFrameObject extends PositionedObjectBase {
+  type: "text-frame";
+  storyId: string;
+}
+
+export type PositionedObject = PositionedImageObject | PositionedTextFrameObject;
 
 export interface BookPage {
   id: string;
@@ -139,23 +153,37 @@ export interface PageNumbering {
 export interface DocumentViewSettings {
   showMargins: boolean;
   showBleed: boolean;
+  showRulers: boolean;
+  showCustomGuides: boolean;
+  snapEnabled: boolean;
+  viewMode: "spread" | "single";
+}
+
+export interface DocumentGuide {
+  id: string;
+  orientation: "horizontal" | "vertical";
+  positionMm: Millimeters;
 }
 
 export interface AssetReference {
   id: string;
   fileName: string;
-  mimeType: string;
-  path: string;
+  mimeType: "image/png" | "image/jpeg" | "image/webp";
+  encoding: "base64";
+  data: string;
+  pixelWidth: number;
+  pixelHeight: number;
 }
 
 export interface BookDocument {
-  schemaVersion: 2;
+  schemaVersion: 3;
   id: string;
   title: string;
   createdAt: string;
   updatedAt: string;
   pageSetup: PageSetup;
   viewSettings: DocumentViewSettings;
+  guides: DocumentGuide[];
   pages: BookPage[];
   stories: TextStory[];
   styles: ParagraphStyle[];

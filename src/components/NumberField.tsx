@@ -25,7 +25,7 @@ export function NumberField({
           min={min}
           max={max}
           step={step}
-          value={value}
+          value={Number(value.toFixed(3))}
           onChange={(event) => {
             const next = event.currentTarget.valueAsNumber;
             if (Number.isFinite(next)) onChange(next);
@@ -36,4 +36,3 @@ export function NumberField({
     </label>
   );
 }
-

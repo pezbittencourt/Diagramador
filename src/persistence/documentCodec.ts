@@ -1,6 +1,8 @@
 import { createDefaultStyles, PAGE_PRESETS } from "../domain/defaultDocument";
 import type {
   BookDocument,
+  BookPage,
+  DocumentGuide,
   EdgeValues,
   NumberingRange,
   PageNumberFormat,
@@ -9,13 +11,14 @@ import type {
   ParagraphAlignment,
   ParagraphOverrides,
   ParagraphStyle,
+  PositionedObject,
   RichTextDocument,
   StoryBlock,
   TextStory,
 } from "../domain/document";
 import { createEmptyStoryContent } from "../domain/textStory";
 
-const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_SCHEMA_VERSION = 3;
 
 export function serializeDocument(document: BookDocument): string {
   return JSON.stringify(document, null, 2);
@@ -216,6 +219,121 @@ function parseStories(value: unknown): TextStory[] {
   }];
 }
 
+function parsePositionedObjects(
+  value: unknown,
+  field: string,
+  sourceSchema: number,
+): PositionedObject[] {
+  return array(value ?? [], field).map((item, index) => {
+    const objectField = `${field}[${index}]`;
+    const source = record(item, objectField);
+    const type = source.type;
+    if (type !== "image" && type !== "text-frame") {
+      return fail(`tipo de objeto desconhecido em “${objectField}”.`);
+    }
+    const width = number(source.width, `${objectField}.width`);
+    const height = number(source.height, `${objectField}.height`);
+    if (width <= 0 || height <= 0) return fail(`“${objectField}” deve ter tamanho positivo.`);
+    const base = {
+      id: string(source.id, `${objectField}.id`),
+      anchorMode: "page" as const,
+      x: number(source.x, `${objectField}.x`),
+      y: number(source.y, `${objectField}.y`),
+      width,
+      height,
+      zIndex: number(source.zIndex, `${objectField}.zIndex`),
+    };
+    if (type === "text-frame") {
+      return {
+        ...base,
+        type,
+        storyId: typeof source.storyId === "string" ? source.storyId : "main-story",
+      };
+    }
+    const assetId = source.assetId;
+    if (typeof assetId !== "string" || !assetId) {
+      return fail(`“${objectField}.assetId” deve identificar um asset.`);
+    }
+    const ratio = source.originalAspectRatio === undefined
+      ? width / height
+      : number(source.originalAspectRatio, `${objectField}.originalAspectRatio`);
+    return {
+      ...base,
+      type,
+      assetId,
+      originalAspectRatio: ratio > 0 ? ratio : width / height,
+      lockAspectRatio: source.lockAspectRatio === undefined
+        ? sourceSchema < CURRENT_SCHEMA_VERSION
+        : boolean(source.lockAspectRatio, `${objectField}.lockAspectRatio`),
+    };
+  });
+}
+
+function parsePages(value: unknown, sourceSchema: number): BookPage[] {
+  const pages = array(value, "pages").map((item, index) => {
+    const field = `pages[${index}]`;
+    const source = record(item, field);
+    return {
+      id: string(source.id, `${field}.id`),
+      ...(source.pageNumberVisible === undefined
+        ? {}
+        : { pageNumberVisible: boolean(source.pageNumberVisible, `${field}.pageNumberVisible`) }),
+      objects: parsePositionedObjects(source.objects, `${field}.objects`, sourceSchema),
+    } satisfies BookPage;
+  });
+  return pages.length ? pages : [{ id: crypto.randomUUID(), objects: [] }];
+}
+
+function parseAssets(value: unknown, sourceSchema: number): BookDocument["assets"] {
+  return array(value ?? [], "assets").map((item, index) => {
+    const field = `assets[${index}]`;
+    const source = record(item, field);
+    const mimeType = source.mimeType;
+    if (mimeType !== "image/png" && mimeType !== "image/jpeg" && mimeType !== "image/webp") {
+      return fail(`formato de imagem desconhecido em “${field}.mimeType”.`);
+    }
+    if (sourceSchema < CURRENT_SCHEMA_VERSION && source.data === undefined) {
+      return {
+        id: string(source.id, `${field}.id`),
+        fileName: string(source.fileName, `${field}.fileName`),
+        mimeType,
+        encoding: "base64" as const,
+        data: "",
+        pixelWidth: 1,
+        pixelHeight: 1,
+      };
+    }
+    const pixelWidth = number(source.pixelWidth, `${field}.pixelWidth`);
+    const pixelHeight = number(source.pixelHeight, `${field}.pixelHeight`);
+    if (pixelWidth <= 0 || pixelHeight <= 0) return fail(`“${field}” deve ter dimensões positivas.`);
+    if (source.encoding !== "base64") return fail(`codificação desconhecida em “${field}.encoding”.`);
+    return {
+      id: string(source.id, `${field}.id`),
+      fileName: string(source.fileName, `${field}.fileName`),
+      mimeType,
+      encoding: "base64" as const,
+      data: string(source.data, `${field}.data`),
+      pixelWidth,
+      pixelHeight,
+    };
+  });
+}
+
+function parseGuides(value: unknown): DocumentGuide[] {
+  return array(value ?? [], "guides").map((item, index) => {
+    const field = `guides[${index}]`;
+    const source = record(item, field);
+    if (source.orientation !== "horizontal" && source.orientation !== "vertical") {
+      return fail(`orientação desconhecida em “${field}.orientation”.`);
+    }
+    return {
+      id: string(source.id, `${field}.id`),
+      orientation: source.orientation,
+      positionMm: number(source.positionMm, `${field}.positionMm`),
+    };
+  });
+}
+
 function parseNumbering(value: unknown): PageNumbering {
   const source = record(value, "numbering");
   const ranges = array(source.ranges, "numbering.ranges").map((item, index) => {
@@ -304,7 +422,7 @@ export function parseDocument(source: string): BookDocument {
   }
 
   const document = record(candidate, "raiz");
-  if (document.schemaVersion !== 1 && document.schemaVersion !== CURRENT_SCHEMA_VERSION) {
+  if (![1, 2, CURRENT_SCHEMA_VERSION].includes(document.schemaVersion as number)) {
     throw new Error(
       `Versão de documento incompatível. Esperada: ${CURRENT_SCHEMA_VERSION}; encontrada: ${String(document.schemaVersion)}.`,
     );
@@ -320,9 +438,10 @@ export function parseDocument(source: string): BookDocument {
   const view = document.viewSettings === undefined
     ? { showMargins: true, showBleed: true }
     : record(document.viewSettings, "viewSettings");
+  const sourceSchema = document.schemaVersion as number;
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     id: string(document.id, "id"),
     title: string(document.title, "title"),
     createdAt: string(document.createdAt, "createdAt"),
@@ -342,11 +461,16 @@ export function parseDocument(source: string): BookDocument {
       showMargins:
         typeof view.showMargins === "boolean" ? view.showMargins : true,
       showBleed: typeof view.showBleed === "boolean" ? view.showBleed : true,
+      showRulers: typeof view.showRulers === "boolean" ? view.showRulers : true,
+      showCustomGuides: typeof view.showCustomGuides === "boolean" ? view.showCustomGuides : true,
+      snapEnabled: typeof view.snapEnabled === "boolean" ? view.snapEnabled : true,
+      viewMode: view.viewMode === "single" ? "single" : "spread",
     },
-    pages: array(document.pages, "pages") as BookDocument["pages"],
+    guides: parseGuides(document.guides),
+    pages: parsePages(document.pages, sourceSchema),
     stories: parseStories(document.stories),
     styles: parseStyles(document.styles),
     numbering: parseNumbering(document.numbering),
-    assets: array(document.assets, "assets") as BookDocument["assets"],
+    assets: parseAssets(document.assets, sourceSchema),
   };
 }
