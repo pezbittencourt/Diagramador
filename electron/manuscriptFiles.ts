@@ -6,6 +6,7 @@ export interface ImportedManuscript {
   fileName: string;
   format: "txt" | "docx";
   text: string;
+  html?: string;
   warnings: string[];
 }
 
@@ -39,13 +40,20 @@ export async function importManuscriptFile(filePath: string): Promise<ImportedMa
   }
 
   if (extension === "docx") {
-    const result = await mammoth.extractRawText({ path: filePath });
+    const [raw, rich] = await Promise.all([
+      mammoth.extractRawText({ path: filePath }),
+      mammoth.convertToHtml(
+        { path: filePath },
+        { styleMap: ["u => u"] },
+      ),
+    ]);
     return {
       filePath,
       fileName,
       format: "docx",
-      text: result.value,
-      warnings: result.messages.map((message) => message.message),
+      text: raw.value,
+      html: rich.value,
+      warnings: [...raw.messages, ...rich.messages].map((message) => message.message),
     };
   }
 

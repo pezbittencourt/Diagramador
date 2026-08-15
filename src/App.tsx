@@ -6,9 +6,11 @@ import type {
   BookDocument,
   PageNumbering,
   PageSetup,
+  ParagraphStyle,
   RichTextDocument,
 } from "./domain/document";
 import { isValidPageSetup } from "./domain/pageGeometry";
+import { docxHtmlToStoryContent } from "./domain/manuscriptImport";
 import {
   mainStory,
   plainTextToStoryContent,
@@ -71,6 +73,10 @@ export default function App() {
   const updateNumbering = (numbering: PageNumbering) => {
     updateBook((current) => ({ ...current, numbering }));
   };
+
+  const updateStyles = useCallback((styles: ParagraphStyle[]) => {
+    updateBook((current) => ({ ...current, styles }));
+  }, [updateBook]);
 
   const updateStory = useCallback((content: RichTextDocument) => {
     updateBook((current) => {
@@ -145,7 +151,9 @@ export default function App() {
       if (result.canceled) return;
       const hasText = storyToPlainText(story.content).trim().length > 0;
       if (hasText && !(await nativeApi.confirmReplaceManuscript())) return;
-      updateStory(plainTextToStoryContent(result.manuscript.text));
+      updateStory(result.manuscript.format === "docx" && result.manuscript.html
+        ? docxHtmlToStoryContent(result.manuscript.html)
+        : plainTextToStoryContent(result.manuscript.text));
       const warningSuffix = result.manuscript.warnings.length
         ? ` ${result.manuscript.warnings.length} aviso(s) do conversor.`
         : "";
@@ -192,7 +200,7 @@ export default function App() {
       <header className="app-bar">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true"><i /><i /></span>
-          <span><strong>Livro Studio</strong><small>motor de texto 0.4</small></span>
+          <span><strong>Livro Studio</strong><small>rich text 0.5</small></span>
         </div>
         <div className="document-name" title={filePath ?? "Documento ainda não salvo"}>
           <span className={`saved-indicator ${dirty ? "dirty" : ""}`} />
@@ -230,6 +238,7 @@ export default function App() {
           showBleed={book.viewSettings.showBleed}
           pageBreakRequest={pageBreakRequest}
           onStoryChange={updateStory}
+          onStylesChange={updateStyles}
           onInsertPageBreak={() => setPageBreakRequest((current) => current + 1)}
           onZoomChange={setZoom}
         />

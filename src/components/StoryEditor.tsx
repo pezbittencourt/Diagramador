@@ -8,21 +8,37 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
-import type { RichTextDocument } from "../domain/document";
+import type { ParagraphStyle, RichTextDocument, RichTextMark } from "../domain/document";
 import {
   PAGE_BREAK_CHARACTER,
+  applyInlineFormat,
+  applyParagraphFormat,
+  applyParagraphStyle,
   deleteFromStory,
+  marksAtOffset,
   replaceStoryRange,
+  selectionFormatting,
   storyToPlainText,
+  type SelectionFormatting,
   type StoryEditResult,
   type StorySelection,
 } from "../domain/textStory";
+import { setMark, type InlineMarkType } from "../domain/textFormatting";
+import type { EditorCommand } from "./editorCommands";
 
 interface StoryEditorProps {
   content: RichTextDocument;
+  styles: ParagraphStyle[];
   children: ReactNode;
   onChange: (content: RichTextDocument) => void;
+  onSelectionFormattingChange: (formatting: SelectionFormatting) => void;
   pageBreakRequest: number;
+  command?: EditorCommand;
+}
+
+interface HistoryEntry {
+  content: RichTextDocument;
+  selection: StorySelection;
 }
 
 function fragmentElement(node: Node | null): HTMLElement | null {
@@ -67,36 +83,60 @@ function findDomPoint(root: HTMLElement, offset: number): [Node, number] | null 
 
 export function StoryEditor({
   content,
+  styles,
   children,
   onChange,
+  onSelectionFormattingChange,
   pageBreakRequest,
+  command,
 }: StoryEditorProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const selectionRef = useRef<StorySelection>({ anchor: 0, head: 0 });
+  const typingMarksRef = useRef<RichTextMark[]>([]);
   const pendingSelectionRef = useRef<StorySelection | undefined>(undefined);
-  const undoStackRef = useRef<RichTextDocument[]>([]);
-  const redoStackRef = useRef<RichTextDocument[]>([]);
+  const undoStackRef = useRef<HistoryEntry[]>([]);
+  const redoStackRef = useRef<HistoryEntry[]>([]);
   const lastEmittedRef = useRef<RichTextDocument | undefined>(undefined);
   const lastBreakRequestRef = useRef(pageBreakRequest);
+  const lastCommandRef = useRef(0);
+
+  const refreshFormatting = useCallback(() => {
+    onSelectionFormattingChange(selectionFormatting(
+      content,
+      styles,
+      selectionRef.current,
+      typingMarksRef.current,
+    ));
+  }, [content, onSelectionFormattingChange, styles]);
 
   useEffect(() => {
     if (lastEmittedRef.current === content) return;
     undoStackRef.current = [];
     redoStackRef.current = [];
     selectionRef.current = { anchor: 0, head: 0 };
+    typingMarksRef.current = marksAtOffset(content, 0);
   }, [content]);
 
   const rememberSelection = useCallback(() => {
     const root = rootRef.current;
     if (!root) return;
     const selection = readDomSelection(root);
-    if (selection) selectionRef.current = selection;
-  }, []);
+    if (!selection) return;
+    const previous = selectionRef.current;
+    const changed = previous.anchor !== selection.anchor || previous.head !== selection.head;
+    selectionRef.current = selection;
+    if (changed && selection.anchor === selection.head) {
+      typingMarksRef.current = marksAtOffset(content, selection.head);
+    }
+    refreshFormatting();
+  }, [content, refreshFormatting]);
 
   useEffect(() => {
     document.addEventListener("selectionchange", rememberSelection);
     return () => document.removeEventListener("selectionchange", rememberSelection);
   }, [rememberSelection]);
+
+  useEffect(() => refreshFormatting(), [refreshFormatting]);
 
   useLayoutEffect(() => {
     const pending = pendingSelectionRef.current;
@@ -105,14 +145,16 @@ export function StoryEditor({
     const anchor = findDomPoint(root, pending.anchor);
     const head = findDomPoint(root, pending.head);
     if (!anchor || !head) return;
-    const selection = window.getSelection();
-    selection?.setBaseAndExtent(anchor[0], anchor[1], head[0], head[1]);
+    window.getSelection()?.setBaseAndExtent(anchor[0], anchor[1], head[0], head[1]);
     pendingSelectionRef.current = undefined;
     root.focus({ preventScroll: true });
   }, [content, children]);
 
   const emit = useCallback((result: StoryEditResult, addToHistory = true) => {
-    if (addToHistory) undoStackRef.current.push(content);
+    if (addToHistory) {
+      undoStackRef.current.push({ content, selection: selectionRef.current });
+      if (undoStackRef.current.length > 200) undoStackRef.current.shift();
+    }
     redoStackRef.current = [];
     selectionRef.current = result.selection;
     pendingSelectionRef.current = result.selection;
@@ -123,37 +165,70 @@ export function StoryEditor({
   const undo = useCallback(() => {
     const previous = undoStackRef.current.pop();
     if (!previous) return;
-    redoStackRef.current.push(content);
-    const caret = Math.min(selectionRef.current.head, storyToPlainText(previous).length);
-    const selection = { anchor: caret, head: caret };
-    selectionRef.current = selection;
-    pendingSelectionRef.current = selection;
-    lastEmittedRef.current = previous;
-    onChange(previous);
+    redoStackRef.current.push({ content, selection: selectionRef.current });
+    selectionRef.current = previous.selection;
+    pendingSelectionRef.current = previous.selection;
+    typingMarksRef.current = marksAtOffset(previous.content, previous.selection.head);
+    lastEmittedRef.current = previous.content;
+    onChange(previous.content);
   }, [content, onChange]);
 
   const redo = useCallback(() => {
     const next = redoStackRef.current.pop();
     if (!next) return;
-    undoStackRef.current.push(content);
-    const caret = Math.min(selectionRef.current.head, storyToPlainText(next).length);
-    const selection = { anchor: caret, head: caret };
-    selectionRef.current = selection;
-    pendingSelectionRef.current = selection;
-    lastEmittedRef.current = next;
-    onChange(next);
+    undoStackRef.current.push({ content, selection: selectionRef.current });
+    selectionRef.current = next.selection;
+    pendingSelectionRef.current = next.selection;
+    typingMarksRef.current = marksAtOffset(next.content, next.selection.head);
+    lastEmittedRef.current = next.content;
+    onChange(next.content);
   }, [content, onChange]);
 
   const insert = useCallback((text: string) => {
     rememberSelection();
-    emit(replaceStoryRange(content, selectionRef.current, text));
+    emit(replaceStoryRange(content, selectionRef.current, text, typingMarksRef.current));
   }, [content, emit, rememberSelection]);
+
+  const formatInline = useCallback((
+    mark: InlineMarkType,
+    value: string | number | boolean,
+  ) => {
+    rememberSelection();
+    const selection = selectionRef.current;
+    if (selection.anchor === selection.head) {
+      typingMarksRef.current = setMark(typingMarksRef.current, mark, value);
+      refreshFormatting();
+      rootRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    const next = applyInlineFormat(content, selection, mark, value);
+    emit({ content: next, selection });
+  }, [content, emit, refreshFormatting, rememberSelection]);
 
   useEffect(() => {
     if (pageBreakRequest === lastBreakRequestRef.current) return;
     lastBreakRequestRef.current = pageBreakRequest;
     insert(PAGE_BREAK_CHARACTER);
   }, [insert, pageBreakRequest]);
+
+  useEffect(() => {
+    if (!command || command.id === lastCommandRef.current) return;
+    lastCommandRef.current = command.id;
+    if (command.type === "inline") {
+      formatInline(command.mark, command.value);
+    } else if (command.type === "style") {
+      rememberSelection();
+      const selection = selectionRef.current;
+      emit({ content: applyParagraphStyle(content, selection, command.styleId), selection });
+    } else {
+      rememberSelection();
+      const selection = selectionRef.current;
+      emit({
+        content: applyParagraphFormat(content, selection, command.property, command.value),
+        selection,
+      });
+    }
+  }, [command, content, emit, formatInline, rememberSelection]);
 
   const onBeforeInput = (event: FormEvent<HTMLDivElement>) => {
     const input = event.nativeEvent as InputEvent;
@@ -205,25 +280,30 @@ export function StoryEditor({
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const modifier = event.ctrlKey || event.metaKey;
+    const key = event.key.toLowerCase();
     if (modifier && event.key === "Enter") {
       event.preventDefault();
       insert(PAGE_BREAK_CHARACTER);
-    } else if (modifier && event.key.toLowerCase() === "a") {
+    } else if (modifier && key === "a") {
       event.preventDefault();
       const length = storyToPlainText(content).length;
       const selection = { anchor: 0, head: length };
       selectionRef.current = selection;
       pendingSelectionRef.current = selection;
       const root = rootRef.current;
-      if (root) {
-        const anchor = findDomPoint(root, 0);
-        const head = findDomPoint(root, length);
-        if (anchor && head) window.getSelection()?.setBaseAndExtent(anchor[0], anchor[1], head[0], head[1]);
-      }
-    } else if (modifier && event.key.toLowerCase() === "z") {
+      const anchor = root && findDomPoint(root, 0);
+      const head = root && findDomPoint(root, length);
+      if (anchor && head) window.getSelection()?.setBaseAndExtent(anchor[0], anchor[1], head[0], head[1]);
+    } else if (modifier && (key === "b" || key === "i" || key === "u")) {
+      event.preventDefault();
+      const current = selectionFormatting(content, styles, selectionRef.current, typingMarksRef.current);
+      if (key === "b") formatInline("bold", !(current.fontWeight !== null && current.fontWeight >= 600));
+      else if (key === "i") formatInline("italic", current.italic !== true);
+      else formatInline("underline", current.underline !== true);
+    } else if (modifier && key === "z") {
       event.preventDefault();
       event.shiftKey ? redo() : undo();
-    } else if (modifier && event.key.toLowerCase() === "y") {
+    } else if (modifier && key === "y") {
       event.preventDefault();
       redo();
     }

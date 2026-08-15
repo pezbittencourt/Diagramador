@@ -68,10 +68,16 @@ export function PagePreview({
         {showMargins && <div className="margin-guide" style={marginStyle} contentEditable={false} aria-hidden="true" />}
         <div className="text-frame" style={textFrameStyle}>
           {layoutPage.fragments.map((fragment) => {
-            const style = styles.find((candidate) => candidate.id === fragment.styleId) ?? styles[0];
+            const style = fragment.paragraphStyle
+              ?? styles.find((candidate) => candidate.id === fragment.styleId)
+              ?? styles[0];
             const paragraphStyle: CSSProperties = style ? {
               fontFamily: style.fontFamily,
               fontSize: style.fontSizePt * PX_PER_PT * scale,
+              fontWeight: style.fontWeight,
+              fontStyle: style.italic ? "italic" : "normal",
+              textDecoration: style.underline ? "underline" : "none",
+              color: style.color,
               lineHeight: style.lineHeight,
               textAlign: style.alignment,
               paddingLeft: px(style.leftIndentMm),
@@ -87,10 +93,21 @@ export function PagePreview({
                 key={`${fragment.blockId}-${fragment.from}`}
                 data-block-id={fragment.blockId}
               >
-                <span
-                  data-story-from={fragment.globalFrom}
-                  data-story-to={fragment.globalTo}
-                >{fragment.text || "\u200b"}</span>
+                {fragment.runs.map((run, runIndex) => (
+                  <span
+                    key={`${run.from}-${run.to}-${runIndex}`}
+                    data-story-from={run.globalFrom}
+                    data-story-to={run.globalTo}
+                    style={{
+                      fontFamily: run.style.fontFamily,
+                      fontSize: run.style.fontSizePt * PX_PER_PT * scale,
+                      fontWeight: run.style.fontWeight,
+                      fontStyle: run.style.italic ? "italic" : "normal",
+                      textDecoration: run.style.underline ? "underline" : "none",
+                      color: run.style.color,
+                    }}
+                  >{run.text || "\u200b"}</span>
+                ))}
               </p>
             );
           })}

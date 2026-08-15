@@ -122,4 +122,54 @@ describe("document persistence codec", () => {
     expect(after.pages.length).toBe(before.pages.length);
     expect(after.sourceLength).toBe(before.sourceLength);
   });
+
+  it("H: salva e abre estilos, vínculos, overrides e formatação inline", () => {
+    const document = createDefaultDocument();
+    const paragraph = document.stories[0].content.content[0];
+    if (paragraph.type !== "paragraph") throw new Error("Fixture inválida.");
+    paragraph.attrs.styleId = "quote";
+    paragraph.attrs.overrides = { alignment: "right", spaceBeforePt: 12 };
+    paragraph.content = [{
+      type: "text",
+      text: "Trecho rico",
+      marks: [
+        { type: "bold", attrs: { value: true } },
+        { type: "textColor", attrs: { value: "#8b2f2f" } },
+      ],
+    }];
+    document.styles = document.styles.map((style) => style.id === "quote"
+      ? { ...style, fontSizePt: 12.5 }
+      : style);
+
+    const opened = parseDocument(serializeDocument(document));
+    expect(opened.schemaVersion).toBe(2);
+    expect(opened.styles.find((style) => style.id === "quote")?.fontSizePt).toBe(12.5);
+    expect(opened.stories[0].content.content[0]).toEqual(paragraph);
+  });
+
+  it("I: migra um documento 0.4/schema 1 e completa os estilos 0.5", () => {
+    const legacy = createDefaultDocument();
+    const body = legacy.styles[0] as Partial<(typeof legacy.styles)[number]>;
+    delete body.fontWeight;
+    delete body.italic;
+    delete body.underline;
+    delete body.color;
+    const payload = {
+      ...legacy,
+      schemaVersion: 1,
+      styles: [body],
+    };
+
+    const migrated = parseDocument(JSON.stringify(payload));
+    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.styles.map((style) => style.id)).toEqual([
+      "body", "chapter-title", "subtitle", "quote", "dedication",
+    ]);
+    expect(migrated.styles[0]).toMatchObject({
+      fontWeight: 400,
+      italic: false,
+      underline: false,
+      color: "#222520",
+    });
+  });
 });

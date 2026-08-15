@@ -20,11 +20,13 @@ export interface PageSetup {
 
 export type ParagraphAlignment = "left" | "center" | "right" | "justify";
 
-export interface ParagraphStyle {
-  id: string;
-  name: string;
+export interface ParagraphStyleProperties {
   fontFamily: string;
   fontSizePt: number;
+  fontWeight: number;
+  italic: boolean;
+  underline: boolean;
+  color: string;
   lineHeight: number;
   alignment: ParagraphAlignment;
   spaceBeforePt: number;
@@ -34,13 +36,20 @@ export interface ParagraphStyle {
   rightIndentMm: number;
 }
 
+export interface ParagraphStyle extends ParagraphStyleProperties {
+  id: string;
+  name: string;
+}
+
+export type ParagraphOverrides = Partial<ParagraphStyleProperties>;
+
 /**
  * Conteúdo semântico contínuo. As quebras de página nunca são gravadas nesta
  * árvore: elas pertencem ao LayoutSnapshot, que pode ser recalculado.
  */
 export interface RichTextMark {
   type: string;
-  attrs?: Record<string, unknown>;
+  attrs?: { value?: string | number | boolean };
 }
 
 export interface InlineTextNode {
@@ -52,7 +61,7 @@ export interface InlineTextNode {
 export interface ParagraphNode {
   type: "paragraph";
   id: string;
-  attrs: { styleId: string };
+  attrs: { styleId: string; overrides?: ParagraphOverrides };
   content: InlineTextNode[];
 }
 
@@ -140,7 +149,7 @@ export interface AssetReference {
 }
 
 export interface BookDocument {
-  schemaVersion: 1;
+  schemaVersion: 2;
   id: string;
   title: string;
   createdAt: string;

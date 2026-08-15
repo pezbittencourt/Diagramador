@@ -1,34 +1,84 @@
-# Livro Studio 0.4
+# Livro Studio 0.5
 
-Editor desktop pessoal focado em escrita e diagramação de livros. A versão 0.4
-introduz uma história de texto contínua e paginação automática sem transformar
-cada página em um editor independente.
+Editor desktop pessoal focado em escrita e diagramação de livros. A versão 0.5
+adiciona rich text e estilos editoriais sobre a história contínua paginada, sem
+transformar cada página em um editor independente.
+
+## Aviso sobre o projeto
+
+Este projeto foi desenvolvido exclusivamente para **uso pessoal**, sem fins
+lucrativos e sem a intenção, neste momento, de ser comercializado ou apresentado
+como projeto acadêmico ou profissional.
+
+O Livro Studio surgiu a partir de um **problema real de uso**: a necessidade de
+uma ferramenta de diagramação de livros que oferecesse um fluxo mais adequado às
+necessidades específicas do projeto em desenvolvimento, especialmente em relação
+ao controle de páginas, numeração editorial, margens, sangria e organização do
+conteúdo.
+
+Todo o processo de concepção, arquitetura e desenvolvimento do software contou
+de forma significativa com o auxílio de ferramentas de **Inteligência Artificial
+da OpenAI**, utilizadas para análise de requisitos, planejamento arquitetural,
+geração e modificação de código, documentação, investigação de problemas e
+implementação de funcionalidades.
+
+Dessa forma, este repositório **não pretende representar um projeto cujo código
+tenha sido integralmente escrito manualmente por mim**.
+
+Minha atuação durante o desenvolvimento concentrou-se principalmente em:
+
+- definição dos requisitos e comportamento esperado do software;
+- avaliação das decisões arquiteturais propostas;
+- revisão da estrutura e organização do código;
+- análise das alterações realizadas pela IA;
+- testes funcionais e identificação de regressões;
+- validação da integração entre diferentes funcionalidades;
+- direcionamento das próximas etapas do desenvolvimento;
+- acompanhamento de decisões relacionadas à manutenção e evolução do projeto.
+
+O objetivo desse processo também foi utilizar o desenvolvimento como exercício
+de **análise crítica de código e engenharia de software assistida por IA**.
+
+Em vez de utilizar a IA apenas como mecanismo de geração automática de código, o
+projeto foi conduzido buscando compreender e avaliar as decisões tomadas,
+identificar riscos arquiteturais, verificar regressões e controlar a evolução do
+sistema.
+
+Assim, uma parte relevante do aprendizado envolvido no projeto está justamente
+em desenvolver a capacidade de **gerenciar ferramentas de IA aplicadas à
+programação**, mantendo supervisão humana sobre arquitetura, qualidade,
+integração e comportamento do software, evitando um processo puramente baseado
+em *vibe coding* sem revisão ou compreensão das alterações realizadas.
+
+O Livro Studio deve, portanto, ser entendido principalmente como uma **solução
+pessoal para um problema concreto e um experimento prático de desenvolvimento de
+software assistido por Inteligência Artificial**.
 
 ## Stack
 
 - Electron 43, React 19, TypeScript, Vite e Vitest.
-- `mammoth` para extrair texto e parágrafos de arquivos DOCX.
-- Canvas 2D do Chromium para medir texto no preview.
+- `mammoth` para extrair texto e HTML semântico de DOCX.
+- Canvas 2D do Chromium para medir runs tipográficos no preview.
 
-As decisões de domínio e os riscos técnicos estão em
-[`ARCHITECTURE.md`](./ARCHITECTURE.md).
+As decisões de domínio estão em [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
 ## Funcionalidades atuais
 
-- Edição direta no ambiente paginado: cursor, seleção, Enter, Backspace/Delete,
-  copiar, recortar, colar, selecionar tudo e desfazer/refazer básico.
-- Uma história principal estruturada em parágrafos e quebras manuais.
-- Reflow completo para frente e para trás; páginas surgem e desaparecem.
-- Quebra manual pelo botão `Quebra de página` ou `Ctrl+Enter`.
-- Spreads dinâmicos: página 1 isolada, depois 2–3, 4–5 etc.
-- Navegação por página física, zoom, ajuste de spread e scroll.
-- Tamanho A4/A5/custom, margens espelhadas, sangria e guias.
-- Numeração editorial física/lógica recalculada após cada reflow.
-- Novo, abrir projeto, salvar, salvar como e estado não salvo.
-- Importação separada de manuscritos TXT e DOCX.
+- Edição direta no ambiente paginado com cursor, seleção, clipboard e undo/redo.
+- Negrito, itálico, sublinhado, fonte, tamanho e cor por seleção ou cursor.
+- Alinhamento, entrelinha, espaços e recuos com impacto real na paginação.
+- Estilos Corpo de texto, Título de capítulo, Subtítulo, Citação e Dedicatória.
+- Edição global de estilos com atualização de todos os parágrafos vinculados.
+- História estruturada em parágrafos e quebras manuais; reflow completo.
+- Spreads em grade editorial: página 1 à direita, depois 2–3, 4–5 etc.
+- Navegação por página, zoom, ajuste de spread e scroll.
+- A4/A5/custom, margens espelhadas, sangria, guias e numeração editorial.
+- Novo, abrir, salvar, salvar como, dirty state e migração de projetos 0.4.
+- Importação TXT simples e DOCX com formatação básica.
 
-O DOCX preserva texto e separação básica de parágrafos. Fontes, cores, estilos,
-tabelas, imagens, notas, cabeçalhos e rodapés ainda não são importados.
+O DOCX preserva parágrafos, headings simples, negrito, itálico e sublinhado
+quando expostos pelo conversor. Tabelas, imagens, notas, cabeçalhos, rodapés e
+fidelidade total ao Word ainda não são importados.
 
 ## Executar
 
@@ -54,30 +104,32 @@ npm.cmd run smoke
 npm.cmd run benchmark
 ```
 
-O smoke salva uma captura em `.tmp/livro-studio-smoke.png`. O benchmark atual
-usa cerca de 145 mil caracteres e produz aproximadamente 90 páginas.
+O smoke salva `.tmp/livro-studio-smoke.png` e um projeto schema 2. Ele exercita
+formatação, estilo global, reflow, persistência, numeração e geometria de spread.
+O benchmark usa mais de 160 mil caracteres, 720 parágrafos e cerca de 100 páginas.
 
-## Teste manual sugerido
+## Uso manual
 
-1. Clique no texto da primeira página e escreva ou cole conteúdo grande.
-2. Edite o começo e confira o reflow das páginas seguintes.
-3. Apague conteúdo e confira a redução da quantidade de páginas.
-4. Altere margens ou tamanho e confira nova paginação.
-5. Use `Ctrl+Enter` ou o botão de quebra de página.
-6. Use `Ir para` para navegar a uma página física.
-7. Salve, feche, abra o projeto e continue editando.
-8. Use `Importar manuscrito` para TXT ou DOCX e confirme a substituição.
-9. Ajuste a numeração editorial na lateral e confira os fólios.
+1. Selecione texto no canvas e use a toolbar para fonte, tamanho, cor e ênfase.
+2. Use `Estilo` para vincular o parágrafo a um estilo editorial.
+3. Clique em `Editar estilos`, selecione um estilo e altere propriedades. A
+   visualização atualiza imediatamente; `Salvar e fechar` encerra o painel.
+4. Alinhamento, entrelinha, espaços e recuos criam overrides locais.
+5. Atalhos: `Ctrl+B`, `Ctrl+I`, `Ctrl+U`, `Ctrl+Enter`, `Ctrl+Z`, `Ctrl+Y`,
+   `Ctrl+Shift+Z` e `Ctrl+S`.
+6. Salve/abra normalmente; arquivos 0.4/schema 1 são migrados na abertura. TXT
+   recebe Corpo de texto e DOCX aproveita formatação básica.
 
-## Limitações conhecidas do 0.4
+## Limitações conhecidas do 0.5
 
-- Somente texto simples é editável; marcas e estilos ricos ficam para o 0.5.
-- O histórico é local à sessão e agrupa cada operação individualmente.
-- Composição por IME e seleção iniciada em áreas vazias entre fragmentos ainda
-  precisam de refinamento antes de um editor multilíngue de produção.
-- Não há regras de órfãs/viúvas, hifenização ou keep-with-next.
-- O reflow é integral e todos os spreads são renderizados; livros muito longos
+- O histórico é local à sessão, tem 200 entradas e agrupa cada operação
+  individualmente; edições globais de estilos não entram no undo.
+- IME e seleção em limites vazios ainda precisam de refinamento multilíngue.
+- Justificação não tem hifenização, microtipografia, órfãs/viúvas ou
+  keep-with-next.
+- Reflow é integral e todos os spreads são renderizados; livros muito longos
   precisarão de composição incremental e virtualização.
-- A fonte usada precisa estar disponível no sistema; incorporação de fontes
-  ainda não existe.
-- Imagens e PDF ainda não foram implementados.
+- Fontes precisam estar disponíveis no sistema; incorporação ainda não existe.
+- O DOCX depende da semântica do Mammoth; alinhamento direto e page breaks do
+  Word nem sempre chegam ao HTML intermediário.
+- Imagens, objetos posicionados e PDF ainda não foram implementados.

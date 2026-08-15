@@ -9,112 +9,123 @@ renderer isolado recebe somente uma API segura pelo preload.
 
 ## Camadas
 
-- `src/domain`: documento, história e numeração, sem React ou Electron.
-- `src/layout`: medição, paginação e snapshot derivado.
-- `src/persistence`: JSON versionado, validação e compatibilidade.
+- `src/domain`: documento, história, formatação e numeração, sem React/Electron.
+- `src/layout`: medição, paginação, spreads e snapshot derivado.
+- `src/persistence`: JSON versionado, validação e migração.
 - `src/components`: editor único, páginas e controles.
 - `electron`: janela, arquivos nativos e importação TXT/DOCX.
 
 O estado persistente usa milímetros e pontos. Pixels existem apenas na projeção
 visual. Índices físicos são base zero internamente e base um na interface.
 
-## História contínua
+## História contínua e rich text
 
 `TextStory.content` é um documento semântico com blocos tipados:
 
-- `paragraph`: identidade estável, `styleId` e conteúdo inline preparado para
-  marcas futuras;
+- `paragraph`: identidade estável, `styleId`, overrides locais e conteúdo inline;
 - `pageBreak`: quebra manual persistente;
-- nós inline de texto que poderão receber `marks` no marco 0.5.
+- `text`: runs com marks para peso, itálico, sublinhado, família, tamanho e cor.
 
-Uma string plana é somente uma representação transitória usada pelas operações
-iniciais de edição e importação. O arquivo preserva a árvore estruturada. As
-quebras automáticas nunca entram nessa árvore.
+As quebras automáticas nunca entram nessa árvore. Uma string plana é somente a
+representação de interoperabilidade para clipboard e TXT.
 
-## Editor e seleção
+Parágrafos guardam o vínculo `styleId`; não recebem uma cópia desconectada do
+estilo global. `attrs.overrides` guarda apenas formatação local de parágrafo e
+marks inline continuam válidas após mudanças globais.
+
+## Editor, seleção e histórico
 
 O canvas possui uma única raiz `contenteditable` abrangendo todos os spreads.
-Cada fragmento visual declara offsets globais da história. Antes de uma edição,
-o editor converte a seleção DOM para offsets semânticos; depois do reflow,
-converte os offsets novamente para nós DOM e restaura seleção, foco e caret.
+Cada run visual declara offsets globais da história. Antes de uma transação, o
+editor converte a seleção DOM para offsets semânticos; depois do reflow,
+converte-os novamente para nós DOM e restaura seleção, foco e caret.
 
-Isso evita editores independentes por página. Digitação, Enter, exclusão,
-clipboard e histórico produzem operações sobre a história completa. `Ctrl+Enter`
-insere um bloco `pageBreak` real.
+Digitação, Enter, exclusão, clipboard, formatação e aplicação de estilos operam
+sobre a história completa. `Ctrl+Enter` insere um `pageBreak` real. A toolbar
+envia comandos ao mesmo `StoryEditor`, preservando a seleção quando o foco passa
+por controles.
 
-Para o 0.5, as operações poderão migrar da representação plana transitória para
-transações estruturais sem trocar o contrato história → snapshot → páginas. As
-identidades de parágrafo e o `styleId` já existem; marcas inline já possuem um
-tipo reservado no domínio.
-
-Não foi adicionada uma engine rica no 0.4: ProseMirror/Tiptap ainda exigiria um
-plugin próprio para projetar uma seleção única sobre fragmentos paginados, e o
-marco atual não usa formatação. A camada mínima de edição está isolada em
-`StoryEditor`. No começo do 0.5 ela deve ser substituída por transações e
-histórico de uma engine madura; domínio, persistência e compositor não mudam.
+O 0.5 usa uma camada transacional pequena e fortemente tipada, em vez de manter
+um segundo documento em ProseMirror/Tiptap. Isso conserva uma única fonte de
+verdade e o contrato história → snapshot → páginas. Undo/redo local inclui
+texto, marks, overrides e aplicação de estilos, limitado a 200 entradas.
 
 ## Medição e paginação
 
-O compositor é uma função pura, parametrizada por `TextMeasurer`. No aplicativo,
-`CanvasTextMeasurer` usa `measureText` com a fonte/tamanho resolvidos. Nos testes,
-um medidor determinístico mantém os cenários reproduzíveis.
+O compositor é uma função pura parametrizada por `TextMeasurer`. No aplicativo,
+`CanvasTextMeasurer` usa `measureText`; nos testes, um medidor determinístico
+mantém cenários reproduzíveis.
 
 Para cada página o motor:
 
-1. resolve o lado físico e as margens interna/externa;
-2. calcula a área útil, sem incluir sangria;
-3. quebra parágrafos em linhas por busca binária da maior faixa que cabe;
-4. consome a altura disponível conforme tamanho, line-height e espaçamentos;
-5. emite fragmentos com `blockId`, offsets locais/globais e estado de início/fim;
-6. honra `pageBreak` iniciando uma página nova.
+1. resolve lado físico e margens interna/externa;
+2. calcula a área útil sem incluir sangria;
+3. resolve estilo herdado, override de parágrafo e marks inline;
+4. quebra linhas por busca binária, medindo cada run tipográfico;
+5. consome altura pela maior fonte da linha, line-height e espaçamentos;
+6. emite fragmentos/runs com IDs, offsets locais/globais e início/fim;
+7. honra `pageBreak` iniciando uma página nova.
 
-O 0.4 recompõe do começo ao fim. Assim, inserções empurram conteúdo para frente
-e exclusões o puxam de volta, removendo páginas vazias. `pages` é sincronizado
-com o snapshot; páginas com objetos futuros nunca serão removidas pelo
-sincronizador.
+O reflow ainda recompõe do começo ao fim. Inserções empurram conteúdo para a
+frente; exclusões o puxam para trás. `pages` acompanha o snapshot, sem remover
+páginas futuras que já tenham objetos posicionados.
 
-## Tipografia
+## Spreads
 
-Os valores não estão espalhados na UI. `ParagraphStyle` centraliza família,
-tamanho, altura de linha, alinhamento, espaços antes/depois e recuos. O estilo
-`body` é a configuração global inicial. Alterar tamanho da página, margens,
-espelhamento, história ou estilos invalida o snapshot.
+Spreads são derivados da quantidade dinâmica de páginas: página física 1 no
+slot direito, depois 2–3, 4–5 etc. Uma grade explícita de duas colunas mantém
+paridade, largura e distância estáveis; não há condicionais por número concreto.
+O gap acompanha o zoom, e a geometria de margens continua derivada de
+`resolveFacingEdges`.
 
-## Numeração
+## Tipografia e estilos
 
-A numeração continua derivada de regras, nunca fixada por página:
+`ParagraphStyle` centraliza família, tamanho, peso, itálico, sublinhado, cor,
+altura de linha, alinhamento, espaços e recuos. O documento nasce com `body`,
+`chapter-title`, `subtitle`, `quote` e `dedication`. Editar um objeto global
+atualiza todos os parágrafos vinculados e invalida o snapshot.
+
+Justificação usa `text-align: justify` no Chromium. Ainda não há hifenização,
+controle de órfãs/viúvas ou justificação microtipográfica.
+
+## Numeração editorial
+
+A numeração permanece derivada, nunca fixada por página:
 
 - índice físico: posição em `pages`;
 - número lógico: calculado por `numbering.ranges`;
-- visibilidade: regra global, intervalos e exceções.
+- visibilidade: política global, intervalos e exceções.
 
-Depois de cada reflow, `pages` muda de quantidade e `resolvePageNumber` é chamado
-novamente por índice. Formato, intervalo, ocultação e posição interna/externa
-continuam funcionando.
+Após cada reflow, o número de páginas muda e `resolvePageNumber` é executado de
+novo por índice. Formato, intervalos, ocultação e colocação continuam intactos.
 
 ## Persistência e compatibilidade
 
-O formato permanece JSON UTF-8 com `schemaVersion: 1`. O 0.3 já possuía
-`stories` e uma árvore genérica, portanto não houve mudança incompatível. Ao
-abrir um arquivo anterior, o codec adiciona IDs ausentes aos parágrafos,
-normaliza `styleId` e mantém os demais defaults defensivos. Conteúdo e regras
-são persistidos; fragmentos e quebras automáticas são recalculados.
+O formato é JSON UTF-8 com `schemaVersion: 2`. O codec aceita arquivos
+0.4/schema 1, completa propriedades tipográficas e estilos editoriais ausentes,
+normaliza IDs/styleId e devolve um documento schema 2. Conteúdo estruturado,
+marks, vínculos, overrides e estilos globais são persistidos; fragmentos e
+quebras automáticas são recalculados.
 
-TXT é decodificado como UTF-8, com suporte a BOM UTF-16, e suas quebras são
-normalizadas. DOCX usa `mammoth.extractRawText`; nesta fase somente texto e
-parágrafos relevantes são aproveitados.
+TXT é decodificado como UTF-8, com BOM UTF-16, normaliza quebras e recebe
+`body`. DOCX usa `mammoth.extractRawText` como fallback e
+`mammoth.convertToHtml` para mapear parágrafos, headings, negrito, itálico e
+sublinhado. Formatação desconhecida é ignorada sem abortar a importação.
 
-## Preview e PDF futuro
+## Objetos e PDF futuros
 
-`LayoutSnapshot` é o contrato comum. Hoje as páginas React o projetam; o futuro
-exportador deverá consumir as mesmas posições, estilos e geometria numa rota de
-impressão, evitando um segundo algoritmo de paginação.
+`LayoutSnapshot` continua sendo o contrato de projeção. Páginas mantêm uma lista
+independente de `PositionedObject`; o texto não foi acoplado a páginas físicas.
+O marco 0.6 poderá adicionar imagens livres sem trocar o modelo da história. Um
+futuro exportador deverá consumir o mesmo snapshot para evitar um segundo
+algoritmo de composição.
 
 ## Riscos e próximos endurecimentos
 
-- Refinar IME/composição e seleção em limites vazios de fragmentos.
-- Medir após `document.fonts.ready` e registrar/embutir fontes.
+- Refinar agrupamento temporal de undo e IME/composição em casos complexos.
+- Medir após `document.fonts.ready` e registrar/incorporar fontes.
 - Adicionar órfãs, viúvas, hifenização e regras editoriais de bloco.
 - Tornar o reflow incremental a partir do primeiro bloco alterado.
-- Virtualizar spreads fora da viewport sem perder o mapeamento da seleção.
-- Migrar operações simples para transações ricas no 0.5.
+- Virtualizar spreads fora da viewport sem perder a seleção.
+- Preservar alinhamento direto e page breaks de DOCX quando o conversor não os
+  expõe no HTML.

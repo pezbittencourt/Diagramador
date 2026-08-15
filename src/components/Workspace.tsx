@@ -6,9 +6,14 @@ import type {
   ParagraphStyle,
   RichTextDocument,
 } from "../domain/document";
+import { selectionFormatting, type SelectionFormatting } from "../domain/textStory";
 import type { LayoutSnapshot } from "../layout/layoutTypes";
+import { createSpreads } from "../layout/spreads";
+import type { EditorCommand, EditorCommandRequest } from "./editorCommands";
+import { FormattingToolbar } from "./FormattingToolbar";
 import { PagePreview } from "./PagePreview";
 import { StoryEditor } from "./StoryEditor";
+import { StyleEditor } from "./StyleEditor";
 
 interface WorkspaceProps {
   setup: PageSetup;
@@ -22,27 +27,9 @@ interface WorkspaceProps {
   showBleed: boolean;
   pageBreakRequest: number;
   onStoryChange: (content: RichTextDocument) => void;
+  onStylesChange: (styles: ParagraphStyle[]) => void;
   onInsertPageBreak: () => void;
   onZoomChange: (zoom: number) => void;
-}
-
-interface Spread {
-  label: string;
-  pageIndexes: number[];
-}
-
-function createSpreads(pageCount: number): Spread[] {
-  const spreads: Spread[] = [{ label: "PÁGINA 01", pageIndexes: [0] }];
-  for (let index = 1; index < pageCount; index += 2) {
-    const pageIndexes = index + 1 < pageCount ? [index, index + 1] : [index];
-    spreads.push({
-      label: pageIndexes.length === 2
-        ? `SPREAD ${String(index + 1).padStart(2, "0")}–${String(index + 2).padStart(2, "0")}`
-        : `PÁGINA ${String(index + 1).padStart(2, "0")}`,
-      pageIndexes,
-    });
-  }
-  return spreads;
 }
 
 export function Workspace({
@@ -57,12 +44,28 @@ export function Workspace({
   showBleed,
   pageBreakRequest,
   onStoryChange,
+  onStylesChange,
   onInsertPageBreak,
   onZoomChange,
 }: WorkspaceProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
+  const commandIdRef = useRef(0);
   const [targetPage, setTargetPage] = useState("1");
+  const [command, setCommand] = useState<EditorCommand>();
+  const [styleEditorOpen, setStyleEditorOpen] = useState(false);
+  const [formatting, setFormatting] = useState<SelectionFormatting>(() =>
+    selectionFormatting(storyContent, styles, { anchor: 0, head: 0 }),
+  );
   const spreads = useMemo(() => createSpreads(layout.pages.length), [layout.pages.length]);
+  const spreadGap = 12 * 96 / 25.4 * zoom / 100;
+  const spreadPageWidth = (
+    setup.width + setup.bleed.inner + setup.bleed.outer
+  ) * 96 / 25.4 * zoom / 100;
+
+  const dispatchCommand = (request: EditorCommandRequest) => {
+    commandIdRef.current += 1;
+    setCommand({ ...request, id: commandIdRef.current } as EditorCommand);
+  };
 
   const fitSpread = () => {
     const viewport = viewportRef.current;
@@ -115,25 +118,42 @@ export function Workspace({
         </div>
       </header>
 
+      <FormattingToolbar
+        styles={styles}
+        formatting={formatting}
+        onCommand={dispatchCommand}
+        onEditStyles={() => setStyleEditorOpen(true)}
+      />
+
       <div className="canvas-viewport" ref={viewportRef}>
         <div className="canvas-stage">
           <StoryEditor
             content={storyContent}
+            styles={styles}
             onChange={onStoryChange}
+            onSelectionFormattingChange={setFormatting}
             pageBreakRequest={pageBreakRequest}
+            command={command}
           >
             {spreads.map((spread) => (
-              <section className="spread-unit" key={spread.pageIndexes[0]}>
+              <section className="spread-unit" key={spread.pages[0].physicalIndex}>
                 <div className="spread-label" contentEditable={false}>
                   <span>{spread.label}</span>
                   <span>{setup.width} × {setup.height} mm</span>
                 </div>
-                <div className={`spread ${spread.pageIndexes.length === 1
-                  ? `single-page-spread single-page-${spread.pageIndexes[0] % 2 === 0 ? "right" : "left"}`
-                  : ""}`}>
-                  {spread.pageIndexes.map((physicalIndex, index) => (
-                    <div className="page-slot" key={pages[physicalIndex]?.id ?? physicalIndex}>
-                      {index > 0 && <div className="spine" contentEditable={false} aria-hidden="true" />}
+                <div
+                  className="spread"
+                  style={{
+                    columnGap: spreadGap,
+                    gridTemplateColumns: `${spreadPageWidth}px ${spreadPageWidth}px`,
+                  }}
+                  data-spread-page-count={spread.pages.length}
+                >
+                  {spread.pages.map(({ physicalIndex, slot }) => (
+                    <div
+                      className={`page-slot page-slot-${slot}`}
+                      key={pages[physicalIndex]?.id ?? physicalIndex}
+                    >
                       <PagePreview
                         setup={setup}
                         page={pages[physicalIndex] ?? { id: `preview-${physicalIndex}`, objects: [] }}
@@ -155,6 +175,13 @@ export function Workspace({
           </p>
         </div>
       </div>
+      {styleEditorOpen && (
+        <StyleEditor
+          styles={styles}
+          onChange={onStylesChange}
+          onClose={() => setStyleEditorOpen(false)}
+        />
+      )}
     </main>
   );
 }

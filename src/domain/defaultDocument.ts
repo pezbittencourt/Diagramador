@@ -1,5 +1,5 @@
 
-import type { BookDocument, EdgeValues, PageSetup } from "./document";
+import type { BookDocument, EdgeValues, PageSetup, ParagraphStyle } from "./document";
 
 const defaultMargins: EdgeValues = {
   top: 18,
@@ -30,10 +30,83 @@ export function createDefaultPageSetup(): PageSetup {
   };
 }
 
+export function createDefaultStyles(): ParagraphStyle[] {
+  const body: ParagraphStyle = {
+    id: "body",
+    name: "Corpo de texto",
+    fontFamily: "Georgia",
+    fontSizePt: 11,
+    fontWeight: 400,
+    italic: false,
+    underline: false,
+    color: "#222520",
+    lineHeight: 1.35,
+    alignment: "justify",
+    spaceBeforePt: 0,
+    spaceAfterPt: 6,
+    firstLineIndentMm: 5,
+    leftIndentMm: 0,
+    rightIndentMm: 0,
+  };
+  return [
+    body,
+    {
+      ...body,
+      id: "chapter-title",
+      name: "Título de capítulo",
+      fontSizePt: 20,
+      fontWeight: 700,
+      alignment: "center",
+      lineHeight: 1.15,
+      spaceBeforePt: 28,
+      spaceAfterPt: 20,
+      firstLineIndentMm: 0,
+    },
+    {
+      ...body,
+      id: "subtitle",
+      name: "Subtítulo",
+      fontSizePt: 14,
+      fontWeight: 700,
+      alignment: "left",
+      lineHeight: 1.2,
+      spaceBeforePt: 14,
+      spaceAfterPt: 8,
+      firstLineIndentMm: 0,
+    },
+    {
+      ...body,
+      id: "quote",
+      name: "Citação",
+      fontSizePt: 10.5,
+      italic: true,
+      lineHeight: 1.4,
+      firstLineIndentMm: 0,
+      leftIndentMm: 10,
+      rightIndentMm: 10,
+      spaceBeforePt: 8,
+      spaceAfterPt: 8,
+    },
+    {
+      ...body,
+      id: "dedication",
+      name: "Dedicatória",
+      italic: true,
+      alignment: "center",
+      lineHeight: 1.5,
+      firstLineIndentMm: 0,
+      leftIndentMm: 12,
+      rightIndentMm: 12,
+      spaceBeforePt: 40,
+      spaceAfterPt: 12,
+    },
+  ];
+}
+
 export function createDefaultDocument(now = new Date()): BookDocument {
   const timestamp = now.toISOString();
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: crypto.randomUUID(),
     title: "Livro sem título",
     createdAt: timestamp,
@@ -61,21 +134,8 @@ export function createDefaultDocument(now = new Date()): BookDocument {
         },
       },
     ],
-    styles: [
-      {
-        id: "body",
-        name: "Corpo de texto",
-        fontFamily: "Georgia",
-        fontSizePt: 11,
-        lineHeight: 1.35,
-        alignment: "justify",
-        spaceBeforePt: 0,
-        spaceAfterPt: 6,
-        firstLineIndentMm: 5,
-        leftIndentMm: 0,
-        rightIndentMm: 0,
-      },
-    ],
+
+    styles: createDefaultStyles(),
     numbering: {
       ranges: [
         {

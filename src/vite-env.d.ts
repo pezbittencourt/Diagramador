@@ -17,6 +17,7 @@ interface Window {
             fileName: string;
             format: "txt" | "docx";
             text: string;
+            html?: string;
             warnings: string[];
           };
         }

@@ -1,4 +1,6 @@
 import path from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import { importManuscriptFile } from "./manuscriptFiles";
 import { createDefaultDocument } from "../src/domain/defaultDocument";
@@ -35,5 +37,27 @@ describe("manuscript file import", () => {
     expect(manuscript.format).toBe("docx");
     expect(manuscript.text.trim().length).toBeGreaterThan(0);
     expect(pageCount(manuscript.text)).toBeGreaterThanOrEqual(1);
+  });
+
+  it("J: converte formatação básica de um DOCX real para HTML semântico", async () => {
+    const source = await readFile(
+      path.resolve("node_modules/mammoth/test/test-data/underline.docx"),
+    );
+    const zip = await JSZip.loadAsync(source);
+    const documentXml = await zip.file("word/document.xml")?.async("string");
+    if (!documentXml) throw new Error("Fixture DOCX sem document.xml.");
+    zip.file(
+      "word/document.xml",
+      documentXml.replace("<w:b/><w:u", "<w:b/><w:i/><w:u"),
+    );
+    const fixtureDirectory = path.resolve(".tmp");
+    const fixturePath = path.join(fixtureDirectory, "formatted-import.docx");
+    await mkdir(fixtureDirectory, { recursive: true });
+    await writeFile(fixturePath, await zip.generateAsync({ type: "nodebuffer" }));
+
+    const manuscript = await importManuscriptFile(fixturePath);
+    expect(manuscript.html).toMatch(/<strong>/);
+    expect(manuscript.html).toMatch(/<em>/);
+    expect(manuscript.html).toMatch(/<u>/);
   });
 });

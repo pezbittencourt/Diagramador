@@ -1,4 +1,4 @@
-import { PAGE_PRESETS } from "../domain/defaultDocument";
+import { createDefaultStyles, PAGE_PRESETS } from "../domain/defaultDocument";
 import type {
   BookDocument,
   EdgeValues,
@@ -6,13 +6,16 @@ import type {
   PageNumberFormat,
   PageNumbering,
   PagePreset,
+  ParagraphAlignment,
+  ParagraphOverrides,
+  ParagraphStyle,
   RichTextDocument,
   StoryBlock,
   TextStory,
 } from "../domain/document";
 import { createEmptyStoryContent } from "../domain/textStory";
 
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
 
 export function serializeDocument(document: BookDocument): string {
   return JSON.stringify(document, null, 2);
@@ -38,6 +41,11 @@ function number(value: unknown, field: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return fail(`“${field}” deve ser um número finito.`);
   }
+  return value;
+}
+
+function boolean(value: unknown, field: string): boolean {
+  if (typeof value !== "boolean") return fail(`“${field}” deve ser verdadeiro ou falso.`);
   return value;
 }
 
@@ -71,6 +79,68 @@ function inferPreset(width: number, height: number): PagePreset {
   return (preset?.[0] as PagePreset | undefined) ?? "custom";
 }
 
+function parseParagraphOverrides(value: unknown, field: string): ParagraphOverrides | undefined {
+  if (value === undefined) return undefined;
+  const source = record(value, field);
+  const overrides: ParagraphOverrides = {};
+  if (source.fontFamily !== undefined) overrides.fontFamily = string(source.fontFamily, `${field}.fontFamily`);
+  if (source.fontSizePt !== undefined) overrides.fontSizePt = number(source.fontSizePt, `${field}.fontSizePt`);
+  if (source.fontWeight !== undefined) overrides.fontWeight = number(source.fontWeight, `${field}.fontWeight`);
+  if (source.italic !== undefined) overrides.italic = boolean(source.italic, `${field}.italic`);
+  if (source.underline !== undefined) overrides.underline = boolean(source.underline, `${field}.underline`);
+  if (source.color !== undefined) overrides.color = string(source.color, `${field}.color`);
+  if (source.lineHeight !== undefined) overrides.lineHeight = number(source.lineHeight, `${field}.lineHeight`);
+  if (source.alignment !== undefined) {
+    if (!( ["left", "center", "right", "justify"] as unknown[]).includes(source.alignment)) {
+      return fail(`alinhamento desconhecido em “${field}.alignment”.`);
+    }
+    overrides.alignment = source.alignment as ParagraphAlignment;
+  }
+  if (source.spaceBeforePt !== undefined) overrides.spaceBeforePt = number(source.spaceBeforePt, `${field}.spaceBeforePt`);
+  if (source.spaceAfterPt !== undefined) overrides.spaceAfterPt = number(source.spaceAfterPt, `${field}.spaceAfterPt`);
+  if (source.firstLineIndentMm !== undefined) overrides.firstLineIndentMm = number(source.firstLineIndentMm, `${field}.firstLineIndentMm`);
+  if (source.leftIndentMm !== undefined) overrides.leftIndentMm = number(source.leftIndentMm, `${field}.leftIndentMm`);
+  if (source.rightIndentMm !== undefined) overrides.rightIndentMm = number(source.rightIndentMm, `${field}.rightIndentMm`);
+  return Object.keys(overrides).length ? overrides : undefined;
+}
+
+function parseStyles(value: unknown): ParagraphStyle[] {
+  const defaults = createDefaultStyles();
+  const defaultBody = defaults[0];
+  const parsed = array(value ?? [], "styles").map((item, index) => {
+    const source = record(item, `styles[${index}]`);
+    const id = string(source.id, `styles[${index}].id`);
+    const fallback = defaults.find((style) => style.id === id) ?? {
+      ...defaultBody,
+      id,
+      name: typeof source.name === "string" ? source.name : id,
+    };
+    const alignment = source.alignment ?? fallback.alignment;
+    if (!( ["left", "center", "right", "justify"] as unknown[]).includes(alignment)) {
+      return fail(`alinhamento desconhecido em “styles[${index}]”.`);
+    }
+    return {
+      id,
+      name: typeof source.name === "string" ? source.name : fallback.name,
+      fontFamily: typeof source.fontFamily === "string" ? source.fontFamily : fallback.fontFamily,
+      fontSizePt: source.fontSizePt === undefined ? fallback.fontSizePt : number(source.fontSizePt, `styles[${index}].fontSizePt`),
+      fontWeight: source.fontWeight === undefined ? fallback.fontWeight : number(source.fontWeight, `styles[${index}].fontWeight`),
+      italic: source.italic === undefined ? fallback.italic : boolean(source.italic, `styles[${index}].italic`),
+      underline: source.underline === undefined ? fallback.underline : boolean(source.underline, `styles[${index}].underline`),
+      color: source.color === undefined ? fallback.color : string(source.color, `styles[${index}].color`),
+      lineHeight: source.lineHeight === undefined ? fallback.lineHeight : number(source.lineHeight, `styles[${index}].lineHeight`),
+      alignment: alignment as ParagraphAlignment,
+      spaceBeforePt: source.spaceBeforePt === undefined ? fallback.spaceBeforePt : number(source.spaceBeforePt, `styles[${index}].spaceBeforePt`),
+      spaceAfterPt: source.spaceAfterPt === undefined ? fallback.spaceAfterPt : number(source.spaceAfterPt, `styles[${index}].spaceAfterPt`),
+      firstLineIndentMm: source.firstLineIndentMm === undefined ? fallback.firstLineIndentMm : number(source.firstLineIndentMm, `styles[${index}].firstLineIndentMm`),
+      leftIndentMm: source.leftIndentMm === undefined ? fallback.leftIndentMm : number(source.leftIndentMm, `styles[${index}].leftIndentMm`),
+      rightIndentMm: source.rightIndentMm === undefined ? fallback.rightIndentMm : number(source.rightIndentMm, `styles[${index}].rightIndentMm`),
+    } satisfies ParagraphStyle;
+  });
+  const ids = new Set(parsed.map((style) => style.id));
+  return [...parsed, ...defaults.filter((style) => !ids.has(style.id))];
+}
+
 function parseStoryContent(value: unknown, field: string): RichTextDocument {
   const source = record(value, field);
   if (source.type !== "doc") return fail(`“${field}.type” deve ser “doc”.`);
@@ -92,11 +162,16 @@ function parseStoryContent(value: unknown, field: string): RichTextDocument {
           ? undefined
           : array(inline.marks, "marks").map((mark, markIndex) => {
               const parsedMark = record(mark, `marks[${markIndex}]`);
+              const attrs = parsedMark.attrs === undefined
+                ? undefined
+                : record(parsedMark.attrs, `marks[${markIndex}].attrs`);
+              const value = attrs?.value;
+              if (value !== undefined && !["string", "number", "boolean"].includes(typeof value)) {
+                return fail(`valor de marca inválido em “marks[${markIndex}]”.`);
+              }
               return {
                 type: string(parsedMark.type, `marks[${markIndex}].type`),
-                ...(parsedMark.attrs === undefined
-                  ? {}
-                  : { attrs: record(parsedMark.attrs, `marks[${markIndex}].attrs`) }),
+                ...(value === undefined ? {} : { attrs: { value: value as string | number | boolean } }),
               };
             });
         return {
@@ -109,7 +184,16 @@ function parseStoryContent(value: unknown, field: string): RichTextDocument {
     return {
       type: "paragraph",
       id,
-      attrs: { styleId: typeof attrs.styleId === "string" ? attrs.styleId : "body" },
+      attrs: {
+        styleId: typeof attrs.styleId === "string" ? attrs.styleId : "body",
+        ...(() => {
+          const overrides = parseParagraphOverrides(
+            attrs.overrides,
+            `${field}.content[${index}].attrs.overrides`,
+          );
+          return overrides ? { overrides } : {};
+        })(),
+      },
       content: inlineContent,
     } satisfies StoryBlock;
   });
@@ -220,7 +304,7 @@ export function parseDocument(source: string): BookDocument {
   }
 
   const document = record(candidate, "raiz");
-  if (document.schemaVersion !== CURRENT_SCHEMA_VERSION) {
+  if (document.schemaVersion !== 1 && document.schemaVersion !== CURRENT_SCHEMA_VERSION) {
     throw new Error(
       `Versão de documento incompatível. Esperada: ${CURRENT_SCHEMA_VERSION}; encontrada: ${String(document.schemaVersion)}.`,
     );
@@ -238,7 +322,7 @@ export function parseDocument(source: string): BookDocument {
     : record(document.viewSettings, "viewSettings");
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: string(document.id, "id"),
     title: string(document.title, "title"),
     createdAt: string(document.createdAt, "createdAt"),
@@ -261,7 +345,7 @@ export function parseDocument(source: string): BookDocument {
     },
     pages: array(document.pages, "pages") as BookDocument["pages"],
     stories: parseStories(document.stories),
-    styles: array(document.styles, "styles") as BookDocument["styles"],
+    styles: parseStyles(document.styles),
     numbering: parseNumbering(document.numbering),
     assets: array(document.assets, "assets") as BookDocument["assets"],
   };

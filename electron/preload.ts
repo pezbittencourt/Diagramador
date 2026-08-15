@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("livroStudio", {
   platform: process.platform,
-  version: "0.4.0",
+  version: "0.5.0",
   openDocument: () => ipcRenderer.invoke("document:open"),
   importManuscript: () => ipcRenderer.invoke("manuscript:import"),
   confirmReplaceManuscript: () => ipcRenderer.invoke("manuscript:confirm-replace"),

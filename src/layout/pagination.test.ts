@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { createDefaultDocument } from "../domain/defaultDocument";
 import type { RichTextDocument } from "../domain/document";
 import {
+  applyInlineFormat,
+  applyParagraphFormat,
   PAGE_BREAK_CHARACTER,
   plainTextToStoryContent,
   storyToPlainText,
@@ -129,5 +131,70 @@ describe("automatic text pagination", () => {
       logicalNumber: pages.length,
       visible: true,
     });
+  });
+
+  it("C: aumentar o tamanho inline dispara reflow e aumenta a paginação", () => {
+    const document = createDefaultDocument();
+    const content = plainTextToStoryContent("tipografia responsiva ".repeat(2400));
+    const compose = (source: RichTextDocument) => composeStory({
+      storyId: "main-story",
+      content: source,
+      pageSetup: document.pageSetup,
+      styles: document.styles,
+      measurer,
+    }).pages.length;
+    const formatted = applyInlineFormat(
+      content,
+      { anchor: 0, head: storyToPlainText(content).length },
+      "fontSize",
+      18,
+    );
+    expect(compose(formatted)).toBeGreaterThan(compose(content));
+  });
+
+  it("D: aumentar line-height por override repagina a história", () => {
+    const document = createDefaultDocument();
+    const content = plainTextToStoryContent("linha e ritmo ".repeat(2200));
+    const expanded = applyParagraphFormat(
+      content,
+      { anchor: 0, head: storyToPlainText(content).length },
+      "lineHeight",
+      2,
+    );
+    const compose = (source: RichTextDocument) => composeStory({
+      storyId: "main-story",
+      content: source,
+      pageSetup: document.pageSetup,
+      styles: document.styles,
+      measurer,
+    }).pages.length;
+    expect(compose(expanded)).toBeGreaterThan(compose(content));
+  });
+
+  it("L: reflow rico mantém a numeração editorial derivada da página física", () => {
+    const document = createDefaultDocument();
+    document.numbering.ranges[0] = {
+      ...document.numbering.ranges[0],
+      fromPhysicalIndex: 0,
+      logicalStart: 1,
+    };
+    document.numbering.display.logicalRanges = [{ from: 1 }];
+    const content = plainTextToStoryContent("numeração após rich text ".repeat(1800));
+    const formatted = applyInlineFormat(
+      content,
+      { anchor: 0, head: storyToPlainText(content).length },
+      "fontSize",
+      18,
+    );
+    const snapshot = composeStory({
+      storyId: "main-story",
+      content: formatted,
+      pageSetup: document.pageSetup,
+      styles: document.styles,
+      measurer,
+    });
+    const pages = synchronizePhysicalPages(document.pages, snapshot.pages.length);
+    const last = pages.length - 1;
+    expect(resolvePageNumber(pages[last], last, document.numbering).logicalNumber).toBe(pages.length);
   });
 });
