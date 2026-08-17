@@ -3,11 +3,17 @@ import path from "node:path";
 import { readDocumentFile, writeDocumentFile } from "./documentFiles.js";
 import { importManuscriptFile } from "./manuscriptFiles.js";
 import { importImageFile } from "./imageFiles.js";
+import {
+  renderPdfChunksAndWriteFile,
+  validatePdfExportRequest,
+  type PdfExportRequest,
+} from "./pdfExport.js";
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 const dirtyWindows = new WeakMap<BrowserWindow, boolean>();
 const closeAllowed = new WeakSet<BrowserWindow>();
 const closePromptOpen = new WeakSet<BrowserWindow>();
+const pdfExportInProgress = new WeakSet<BrowserWindow>();
 
 interface SaveDocumentRequest {
   content: string;
@@ -124,6 +130,49 @@ ipcMain.handle(
     return { canceled: false, filePath };
   },
 );
+
+ipcMain.handle("pdf:export", async (event, rawRequest: PdfExportRequest) => {
+  const window = windowFromSender(event.sender);
+  if (pdfExportInProgress.has(window)) {
+    throw new Error("Já existe uma exportação PDF em andamento nesta janela.");
+  }
+  pdfExportInProgress.add(window);
+  try {
+    const request = validatePdfExportRequest(rawRequest);
+    const destination = await dialog.showSaveDialog(window, {
+      title: "Exportar PDF do Livro Studio",
+      defaultPath: request.suggestedName,
+      filters: [{ name: "Documento PDF", extensions: ["pdf"] }],
+    });
+    if (destination.canceled || !destination.filePath) return { canceled: true };
+    const filePath = destination.filePath.toLowerCase().endsWith(".pdf")
+      ? destination.filePath
+      : `${destination.filePath}.pdf`;
+    const result = await renderPdfChunksAndWriteFile(
+      () => new BrowserWindow({
+        width: 1024,
+        height: 768,
+        show: false,
+        backgroundColor: "#ffffff",
+        webPreferences: {
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+          backgroundThrottling: false,
+        },
+      }),
+      filePath,
+      request,
+    );
+    return {
+      canceled: false,
+      filePath,
+      ...result,
+    };
+  } finally {
+    pdfExportInProgress.delete(window);
+  }
+});
 
 ipcMain.handle("document:confirm-unsaved", async (event, action: string) =>
   confirmUnsavedChanges(windowFromSender(event.sender), action),

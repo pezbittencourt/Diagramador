@@ -269,7 +269,7 @@ app.whenReady().then(async () => {
     const reopenedRunStyle = getComputedStyle(reopenedRun);
     const followingRun = reopenedRun.parentElement.querySelectorAll('[data-story-from]')[1];
     const followingStyle = followingRun ? getComputedStyle(followingRun) : reopenedRunStyle;
-    const firstParagraphStyle = getComputedStyle(reopenedRun.closest('.story-fragment'));
+    const firstParagraph = reopenedRun.closest('.story-fragment');
     const dualSpreads = [...document.querySelectorAll('.spread')]
       .filter((spread) => spread.querySelectorAll('.page-shell').length === 2);
     const gaps = dualSpreads.map((spread) => {
@@ -287,6 +287,24 @@ app.whenReady().then(async () => {
     });
     const viewport = document.querySelector('.canvas-viewport');
     const folios = [...document.querySelectorAll('.editorial-folio')].map((node) => node.textContent);
+    const textBounds = [...document.querySelectorAll('.page-shell')].map((page) => {
+      const trim = rect(page.querySelector('.trim-page'));
+      const marginGuide = rect(page.querySelector('.margin-guide'));
+      const lineElements = [...page.querySelectorAll('.composed-text-line')]
+        .filter((line) => line.textContent.replace(/\u200b/g, '').length);
+      const lines = lineElements.map(rect);
+      return {
+        page: Number(page.dataset.pageIndex) + 1,
+        trimTop: trim.top,
+        trimBottom: trim.bottom,
+        marginTop: marginGuide.top,
+        marginBottom: marginGuide.bottom,
+        firstTop: lines[0]?.top,
+        lastBottom: lines.at(-1)?.bottom,
+        layerScrollTop: lineElements[0]?.closest('.editorial-text-layer')?.scrollTop,
+        trimScrollTop: page.querySelector('.trim-page').scrollTop,
+      };
+    });
 
     return {
       pagesAfterWrite,
@@ -302,7 +320,7 @@ app.whenReady().then(async () => {
       inlineItalic: reopenedRunStyle.fontStyle === 'italic',
       inlineSizePx: Number.parseFloat(reopenedRunStyle.fontSize),
       inheritedSizePx: Number.parseFloat(followingStyle.fontSize),
-      justified: firstParagraphStyle.textAlign === 'justify',
+      justified: firstParagraph.dataset.paragraphAlignment === 'justify',
       selectedStyle: document.querySelector('select[aria-label="Estilo de parágrafo"]').value,
       dualSpreadCount: dualSpreads.length,
       gaps,
@@ -310,6 +328,7 @@ app.whenReady().then(async () => {
       firstPageWidth: rect(firstPage).width,
       marginGeometry,
       folios,
+      textBounds,
       canScrollHorizontally: viewport.scrollWidth > viewport.clientWidth,
       canScrollVertically: viewport.scrollHeight > viewport.clientHeight,
       storyCharacters: [...document.querySelectorAll('[data-story-from]')]
@@ -352,6 +371,14 @@ app.whenReady().then(async () => {
   assert(interactions.marginGeometry[0].right > interactions.marginGeometry[0].left, "Left-page inner margin is not facing the spine.");
   assert(interactions.marginGeometry[1].left > interactions.marginGeometry[1].right, "Right-page inner margin is not facing the spine.");
   assert(interactions.folios.includes("3"), "Editorial numbering did not follow rich-text reflow.");
+  assert(interactions.textBounds.every((page) => page.firstTop === undefined
+    || (page.firstTop >= page.marginTop - 1 && page.lastBottom <= page.marginBottom + 1)),
+    `Composed text escaped its usable margin box: ${JSON.stringify(interactions.textBounds.filter((page) =>
+      page.firstTop !== undefined
+        && (page.firstTop < page.marginTop - 1 || page.lastBottom > page.marginBottom + 1)).slice(0, 3))}`);
+  assert(interactions.textBounds.every((page) => page.layerScrollTop === 0 && page.trimScrollTop === 0),
+    `An editorial page accumulated internal scroll: ${JSON.stringify(interactions.textBounds
+      .filter((page) => page.layerScrollTop !== 0 || page.trimScrollTop !== 0).slice(0, 3))}`);
   assert(interactions.canScrollHorizontally && interactions.canScrollVertically, "Canvas scrolling regressed at high zoom.");
   assert(interactions.storyCharacters > 30000, "Inserted manuscript text was lost.");
   assert(interactions.imageInserted === 1 && interactions.imageSelected, "Image insertion/selection failed.");

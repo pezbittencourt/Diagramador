@@ -46,6 +46,19 @@ describe("positioned object geometry", () => {
     expect(placement.object.width).toBeLessThanOrEqual(148 * 0.65);
   });
 
+  it("keeps the original aspect even for sub-millimeter source images", () => {
+    const placement = createEmbeddedImagePlacement({
+      fileName: "micro.png",
+      mimeType: "image/png",
+      data: "AA==",
+      pixelWidth: 2,
+      pixelHeight: 1,
+    }, 148, 210);
+    expect(placement.object.width / placement.object.height).toBeCloseTo(2);
+    expect(placement.object.width).toBeGreaterThanOrEqual(1);
+    expect(placement.object.height).toBeGreaterThanOrEqual(1);
+  });
+
   it("B/C/D: preserves free mm coordinates across margins and bleed", () => {
     const moved = { ...image, x: 80, y: -12 };
     expect(moved.x).toBe(80);
@@ -67,6 +80,17 @@ describe("positioned object geometry", () => {
     const free = resizePositionedObject({ ...image, lockAspectRatio: false }, "se", 15, 2);
     expect(free).toMatchObject({ width: 75, height: 42 });
   });
+
+  it.each(["n", "ne", "e", "se", "s", "sw", "w", "nw"] as const)(
+    "keeps positive geometry and aspect through the %s resize handle",
+    (handle) => {
+      const resized = resizePositionedObject(image, handle, -200, -200);
+      expect(resized.width).toBeGreaterThanOrEqual(1);
+      expect(resized.height).toBeGreaterThan(0);
+      expect(resized.width / resized.height).toBeCloseTo(1.5);
+      expect([resized.x, resized.y, resized.width, resized.height].every(Number.isFinite)).toBe(true);
+    },
+  );
 
   it("F: numeric width honors aspect lock", () => {
     expect(setPositionedObjectMeasure(image, "width", 75)).toMatchObject({ width: 75, height: 50 });
@@ -97,6 +121,42 @@ describe("positioned object geometry", () => {
     }, 1, true);
     expect(result.x).toBe(35);
     expect(result.feedback.vertical).toMatchObject({ positionMm: 35, kind: "guia" });
+  });
+
+  it.each([0.25, 0.5, 1, 2])("keeps an eight-pixel snap tolerance at %s scale", (scale) => {
+    const geometry = {
+      pageWidth: 148,
+      pageHeight: 210,
+      margins: { top: 18, right: 15, bottom: 20, left: 20 },
+      bleed: { top: 3, right: 3, bottom: 3, left: 3 },
+      verticalGuides: [],
+      horizontalGuides: [],
+    };
+    const inside = snapObjectPosition(
+      image,
+      20 + pixelsToMillimeters(7.9, scale),
+      80,
+      geometry,
+      scale,
+      true,
+    );
+    const outsideX = 20 + pixelsToMillimeters(8.1, scale);
+    const outside = snapObjectPosition(image, outsideX, 80, geometry, scale, true);
+    expect(inside.x).toBe(20);
+    expect(outside.x).toBeCloseTo(outsideX);
+  });
+
+  it("snaps the right and bottom object edges to the trim", () => {
+    const result = snapObjectPosition(image, 88.2, 170.2, {
+      pageWidth: 148,
+      pageHeight: 210,
+      margins: { top: 18, right: 15, bottom: 20, left: 20 },
+      bleed: { top: 3, right: 3, bottom: 3, left: 3 },
+      verticalGuides: [],
+      horizontalGuides: [],
+    }, 1, true);
+    expect(result.x).toBeCloseTo(88);
+    expect(result.y).toBeCloseTo(170);
   });
 
   it("P: leaves movement untouched when snapping is disabled", () => {

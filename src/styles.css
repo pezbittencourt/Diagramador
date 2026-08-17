@@ -242,20 +242,15 @@ button:not(:disabled) { cursor: pointer; }
 .page-slot-right { grid-column: 2; }
 
 .page-shell { position: relative; flex: none; background: #f4b1ac10; }
-.page-shell.active-page .trim-page { border-color: #9b6b28; box-shadow: inset 0 0 24px #746b5510, 0 0 0 2px #c4904538; }
+.page-shell.active-page .trim-page { outline-color: #9b6b28; box-shadow: inset 0 0 24px #746b5510, 0 0 0 2px #c4904538; }
 .bleed-guide { position: absolute; inset: 0; border: 1px dashed #d65d59; z-index: 2; pointer-events: none; }
-.trim-page { position: absolute; z-index: 1; overflow: hidden; background: #fffefa; border: 1px solid #9fa6a1; box-shadow: inset 0 0 24px #746b5510; }
+.trim-page { position: absolute; z-index: 1; overflow: clip; background: #fffefa; outline: 1px solid #9fa6a1; box-shadow: inset 0 0 24px #746b5510; }
 .margin-guide { position: absolute; border: 1px dashed #3285b5; pointer-events: none; }
-.text-frame { position: absolute; overflow: hidden; color: #222520; cursor: text; }
-.story-fragment { min-height: 1em; margin: 0; white-space: pre-wrap; overflow-wrap: normal; word-break: normal; }
-.story-fragment span { outline: none; }
-.story-fragment::selection, .story-fragment span::selection { background: #b8d7ef; }
-.editorial-folio { position: absolute; color: #6d716e; font-family: Georgia, serif; font-size: 10px; line-height: 1; }
-.folio-top { top: 4%; }
-.folio-bottom { bottom: 4%; }
-.folio-left { left: 7%; }
-.folio-right { right: 7%; }
-.folio-center { left: 50%; transform: translateX(-50%); }
+.editorial-text-layer { position: absolute; inset: 0; z-index: 1; overflow: clip; color: #222520; cursor: text; }
+.composed-text-line { position: absolute; box-sizing: border-box; margin: 0; white-space: pre; overflow: visible; overflow-wrap: normal; word-break: normal; }
+.composed-text-line span { outline: none; }
+.composed-text-line::selection, .composed-text-line span::selection { background: #b8d7ef; }
+.editorial-folio { position: absolute; z-index: 2; color: #6d716e; font-family: Georgia, serif; }
 .positioned-object-layer, .precision-overlay { position: absolute; inset: 0; pointer-events: none; }
 .positioned-object-layer { z-index: 6; }
 .precision-overlay { z-index: 5; }
@@ -307,6 +302,65 @@ button:not(:disabled) { cursor: pointer; }
 .single-page-mode .spread { display: flex; justify-content: center; }
 .single-page-mode .page-slot { grid-column: auto; }
 .canvas-note { max-width: 600px; margin: 18px 0 0; color: #65706a; font-size: 10px; text-align: center; }
+
+.pdf-export-root {
+  position: fixed;
+  left: -100000px;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+  color: #222520;
+  background: #fffefa;
+}
+.pdf-export-page {
+  position: relative;
+  overflow: hidden;
+  break-after: page;
+  page-break-after: always;
+  background: #fffefa;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+.pdf-export-page:last-of-type { break-after: auto; page-break-after: auto; }
+.pdf-export-trim { position: absolute; z-index: 1; overflow: hidden; background: #fffefa; }
+.pdf-export-root .editorial-text-layer { overflow: hidden; }
+.pdf-static-object-layer { position: absolute; inset: 0; z-index: 4; overflow: hidden; }
+.pdf-static-image { position: absolute; display: block; object-fit: fill; }
+
+.pdf-dialog-backdrop { position: fixed; inset: 54px 0 26px; z-index: 50; display: grid; place-items: center; padding: 24px; background: #17201d8a; backdrop-filter: blur(2px); }
+.pdf-dialog { width: min(520px, calc(100vw - 48px)); overflow: hidden; border: 1px solid #aeb5b0; border-radius: 9px; background: #fbfaf6; box-shadow: 0 24px 70px #17201d55; }
+.pdf-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; padding: 18px 20px; border-bottom: 1px solid #d8dcd7; }
+.pdf-dialog > header small { color: #8b6a36; font-size: 9px; font-weight: 800; letter-spacing: .14em; }
+.pdf-dialog > header h2 { margin: 3px 0 0; font: 500 22px Georgia, serif; }
+.pdf-dialog > header button { width: 30px; height: 30px; padding: 0; border: 0; background: transparent; color: #5f6864; font-size: 22px; }
+.pdf-dialog-body { display: grid; gap: 16px; padding: 20px; }
+.pdf-dialog fieldset { display: grid; gap: 10px; margin: 0; padding: 14px; border: 1px solid #d1d6d1; border-radius: 6px; }
+.pdf-dialog legend { padding: 0 6px; color: #4d5752; font-size: 11px; font-weight: 800; }
+.pdf-radio-option, .pdf-checkbox-option { display: flex; align-items: center; gap: 8px; color: #333d38; font-size: 12px; }
+.pdf-range-option { display: grid; grid-template-columns: auto 62px minmax(0, 1fr); }
+.pdf-range-option input[type="text"] { width: 100%; }
+.pdf-dialog fieldset p { margin: 0 0 0 23px; color: #737b77; font-size: 10px; line-height: 1.4; }
+.pdf-progress, .pdf-error { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border-radius: 5px; font-size: 11px; line-height: 1.4; }
+.pdf-progress { color: #365246; background: #e8f0eb; }
+.pdf-progress span { width: 12px; height: 12px; flex: none; border: 2px solid #9db2a8; border-top-color: #476a5b; border-radius: 50%; animation: pdf-spin .8s linear infinite; }
+.pdf-error { color: #843d38; background: #f6e6e3; }
+.pdf-dialog > footer { display: flex; justify-content: flex-end; gap: 9px; padding: 14px 20px; border-top: 1px solid #d8dcd7; background: #f2f3ef; }
+.pdf-dialog button.primary { color: #fff; border-color: #315d4b; background: #315d4b; }
+@keyframes pdf-spin { to { transform: rotate(360deg); } }
+
+@media print {
+  html, body, #root { width: auto !important; height: auto !important; overflow: visible !important; background: #fff !important; }
+  body { margin: 0 !important; }
+  .app-shell { display: none !important; }
+  .pdf-export-root {
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    display: block !important;
+    visibility: visible !important;
+    pointer-events: none !important;
+  }
+}
 
 .style-editor-backdrop { position: fixed; inset: 54px 0 26px; z-index: 30; display: grid; place-items: center; padding: 24px; background: #17201d80; backdrop-filter: blur(2px); }
 .style-editor { width: min(820px, calc(100vw - 64px)); max-height: calc(100vh - 130px); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: #fbfaf6; border: 1px solid #aeb5b0; border-radius: 9px; box-shadow: 0 24px 70px #17201d55; overflow: hidden; }

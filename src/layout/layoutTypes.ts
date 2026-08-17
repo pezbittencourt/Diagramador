@@ -12,7 +12,31 @@ export interface LaidOutInlineRun {
   to: number;
   globalFrom: number;
   globalTo: number;
+  /** Avanço medido pelo mesmo compositor que decidiu a quebra de linha. */
+  advanceMm: number;
   style: ResolvedInlineStyle;
+}
+
+/**
+ * Linha física já composta. Preview e PDF consomem esta geometria e nunca
+ * voltam a decidir onde o texto quebra.
+ */
+export interface LaidOutTextLine {
+  from: number;
+  to: number;
+  globalFrom: number;
+  globalTo: number;
+  paragraphLineIndex: number;
+  isLastLineOfParagraph: boolean;
+  xMm: number;
+  topMm: number;
+  heightMm: number;
+  availableWidthMm: number;
+  naturalWidthMm: number;
+  renderedWidthMm: number;
+  wordSpacingMm: number;
+  alignment: ParagraphStyle["alignment"];
+  runs: LaidOutInlineRun[];
 }
 
 export interface LaidOutParagraphFragment {
@@ -21,6 +45,8 @@ export interface LaidOutParagraphFragment {
   styleId: string;
   paragraphStyle: ParagraphStyle;
   text: string;
+  lines: LaidOutTextLine[];
+  /** Mantido como atalho compatível para diagnósticos e benchmarks. */
   runs: LaidOutInlineRun[];
   from: number;
   to: number;

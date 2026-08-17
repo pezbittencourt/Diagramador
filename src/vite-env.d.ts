@@ -42,6 +42,29 @@ interface Window {
       | { canceled: true }
       | { canceled: false; filePath: string }
     >;
+    exportPdf: (request: {
+      suggestedName: string;
+      title: string;
+      widthMm: number;
+      heightMm: number;
+      expectedPageCount: number;
+      cssText: string;
+      htmlChunks: string[];
+      assets: Array<{
+        fileName: string;
+        mimeType: "image/png" | "image/jpeg" | "image/webp";
+        data: string;
+      }>;
+    }) => Promise<
+      | { canceled: true }
+      | {
+          canceled: false;
+          filePath: string;
+          byteLength: number;
+          pageCount: number;
+          durationMs: number;
+        }
+    >;
     confirmUnsavedChanges: (
       action: string,
     ) => Promise<"save" | "discard" | "cancel">;

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PropertiesPanel } from "./components/PropertiesPanel";
+import { PdfExportDialog, type PdfExportOptions } from "./components/PdfExportDialog";
+import { PdfExportDocument } from "./components/PdfExportDocument";
 import { Workspace } from "./components/Workspace";
 import { createDefaultDocument } from "./domain/defaultDocument";
 import type {
@@ -23,6 +25,7 @@ import {
   type StackAction,
 } from "./domain/objectGeometry";
 import { isValidPageSetup, resolveFacingEdges } from "./domain/pageGeometry";
+import { resolvePageNumber } from "./domain/pageNumbering";
 import { docxHtmlToStoryContent } from "./domain/manuscriptImport";
 import {
   mainStory,
@@ -30,9 +33,17 @@ import {
   storyToPlainText,
 } from "./domain/textStory";
 import { composeStory } from "./layout/pagination";
+import type { LayoutSnapshot } from "./layout/layoutTypes";
 import { synchronizePhysicalPages } from "./layout/pageSynchronization";
 import { CanvasTextMeasurer } from "./layout/textMeasurement";
 import { parseDocument, serializeDocument } from "./persistence/documentCodec";
+import {
+  collectExportFontRequests,
+  validateExportFonts,
+  waitForExportSurface,
+} from "./pdf/exportReadiness";
+import { serializePdfExportSurface } from "./pdf/exportMarkup";
+import { parsePhysicalPageRange } from "./pdf/pageRange";
 
 interface Notice {
   kind: "success" | "error";
@@ -55,6 +66,15 @@ interface ObjectClipboard {
   asset?: BookDocument["assets"][number];
 }
 
+interface PdfExportJob {
+  id: string;
+  physicalPageIndexes: number[];
+  includeBleed: boolean;
+  book: BookDocument;
+  pages: BookPage[];
+  layout: LayoutSnapshot;
+}
+
 function readImageDimensions(dataUrl: string): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -70,6 +90,10 @@ function suggestedFileName(title: string): string {
   return `${safeTitle || "livro-sem-titulo"}.livro.json`;
 }
 
+function suggestedPdfFileName(title: string): string {
+  return suggestedFileName(title).replace(/\.livro\.json$/u, ".pdf");
+}
+
 export default function App() {
   const [book, setBook] = useState(createDefaultDocument);
   const [filePath, setFilePath] = useState<string>();
@@ -77,15 +101,25 @@ export default function App() {
   const [zoom, setZoom] = useState(72);
   const [notice, setNotice] = useState<Notice>();
   const [pageBreakRequest, setPageBreakRequest] = useState(0);
+  const [workspaceFocusRequest, setWorkspaceFocusRequest] = useState(0);
   const [activePageIndex, setActivePageIndex] = useState(0);
   const [objectSelection, setObjectSelection] = useState<ObjectSelection>();
+  const [fontRevision, setFontRevision] = useState(0);
+  const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState<string>();
+  const [pdfError, setPdfError] = useState<string>();
+  const [pdfExportJob, setPdfExportJob] = useState<PdfExportJob>();
   const bookRef = useRef(book);
+  const dirtyRef = useRef(dirty);
+  const pdfExportInProgressRef = useRef(false);
   const graphicHistoryRef = useRef<{ past: GraphicSnapshot[]; future: GraphicSnapshot[] }>({
     past: [],
     future: [],
   });
   const objectClipboardRef = useRef<ObjectClipboard | undefined>(undefined);
   const nativeApi = window.livroStudio;
+  const canExportPdf = typeof nativeApi?.exportPdf === "function";
   const measurer = useMemo(() => new CanvasTextMeasurer(), []);
   const story = mainStory(book.stories);
   const layout = useMemo(() => composeStory({
@@ -95,13 +129,20 @@ export default function App() {
     styles: book.styles,
     measurer,
     revision: 0,
-  }), [book.pageSetup, book.styles, measurer, story.content, story.id]);
+  }), [book.pageSetup, book.styles, fontRevision, measurer, story.content, story.id]);
   const physicalPages = useMemo(
     () => synchronizePhysicalPages(book.pages, layout.pages.length),
     [book.pages, layout.pages.length],
   );
 
   useEffect(() => { bookRef.current = book; }, [book]);
+  useEffect(() => { dirtyRef.current = dirty; }, [dirty]);
+
+  useEffect(() => {
+    let active = true;
+    void document.fonts.ready.then(() => { if (active) setFontRevision((current) => current + 1); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (book.pages.length === physicalPages.length &&
@@ -320,7 +361,13 @@ export default function App() {
           ? [...current.assets, clipboard.asset]
           : current.assets,
         pages: pages.map((page, index) => index === pageIndex
-          ? { ...page, objects: [...page.objects, { ...duplicate, zIndex: page.objects.length }] }
+          ? {
+              ...page,
+              objects: [...page.objects, {
+                ...duplicate,
+                zIndex: Math.max(-1, ...page.objects.map((object) => object.zIndex)) + 1,
+              }],
+            }
           : page),
       };
     });
@@ -483,6 +530,9 @@ export default function App() {
       updateStory(result.manuscript.format === "docx" && result.manuscript.html
         ? docxHtmlToStoryContent(result.manuscript.html)
         : plainTextToStoryContent(result.manuscript.text));
+      setActivePageIndex(0);
+      setObjectSelection(undefined);
+      setWorkspaceFocusRequest((current) => current + 1);
       const warningSuffix = result.manuscript.warnings.length
         ? ` ${result.manuscript.warnings.length} aviso(s) do conversor.`
         : "";
@@ -494,6 +544,107 @@ export default function App() {
       setNotice({ kind: "error", text: error instanceof Error ? error.message : "Não foi possível importar o manuscrito." });
     }
   }, [nativeApi, story.content, updateStory]);
+
+  const exportPdf = useCallback(async (options: PdfExportOptions) => {
+    if (!nativeApi || typeof nativeApi.exportPdf !== "function") {
+      setPdfError("A ponte nativa de PDF não está disponível. Reinicie o Livro Studio após recompilar a aplicação.");
+      return;
+    }
+    if (pdfExportInProgressRef.current) return;
+    pdfExportInProgressRef.current = true;
+    setPdfError(undefined);
+    setPdfBusy(true);
+    let exportMounted = false;
+    try {
+      const physicalPageIndexes = options.selection === "all"
+        ? physicalPages.map((_, index) => index)
+        : parsePhysicalPageRange(options.range, physicalPages.length);
+      for (const physicalIndex of physicalPageIndexes) {
+        for (const object of physicalPages[physicalIndex]?.objects ?? []) {
+          if (object.type !== "image") {
+            throw new Error(
+              `A página física ${physicalIndex + 1} contém um tipo de objeto ainda não exportável.`,
+            );
+          }
+          const asset = book.assets.find((candidate) => candidate.id === object.assetId);
+          if (!asset?.data) {
+            throw new Error(
+              `A imagem ${object.id} da página física ${physicalIndex + 1} não possui dados incorporados.`,
+            );
+          }
+        }
+      }
+
+      const exportId = crypto.randomUUID();
+      setPdfProgress("Preparando tipografia, imagens e páginas…");
+      setPdfExportJob({
+        id: exportId,
+        physicalPageIndexes,
+        includeBleed: options.includeBleed,
+        book,
+        pages: physicalPages,
+        layout,
+      });
+      exportMounted = true;
+      const exportSurface = await waitForExportSurface(exportId);
+      const hasVisibleFolio = physicalPageIndexes.some((physicalIndex) => {
+        const folio = resolvePageNumber(
+          physicalPages[physicalIndex],
+          physicalIndex,
+          book.numbering,
+        );
+        return folio.visible && Boolean(folio.label);
+      });
+      await validateExportFonts(collectExportFontRequests(
+        layout,
+        physicalPageIndexes,
+        hasVisibleFolio,
+      ));
+      const serializedSurface = serializePdfExportSurface(exportSurface);
+      setPdfExportJob(undefined);
+      exportMounted = false;
+
+      const widthMm = book.pageSetup.width + (options.includeBleed
+        ? book.pageSetup.bleed.inner + book.pageSetup.bleed.outer
+        : 0);
+      const heightMm = book.pageSetup.height + (options.includeBleed
+        ? book.pageSetup.bleed.top + book.pageSetup.bleed.bottom
+        : 0);
+      setPdfProgress("Escolha o destino; em seguida o PDF será gerado e gravado com segurança…");
+      document.title = `${book.title} — Livro Studio`;
+      let result: Awaited<ReturnType<typeof nativeApi.exportPdf>>;
+      try {
+        result = await nativeApi.exportPdf({
+          suggestedName: suggestedPdfFileName(book.title),
+          title: book.title,
+          widthMm,
+          heightMm,
+          expectedPageCount: physicalPageIndexes.length,
+          cssText: serializedSurface.cssText,
+          htmlChunks: serializedSurface.htmlChunks,
+          assets: serializedSurface.assets,
+        });
+      } finally {
+        document.title = `${dirtyRef.current ? "• " : ""}${bookRef.current.title} — Livro Studio`;
+      }
+      if (result.canceled) {
+        setPdfProgress(undefined);
+        return;
+      }
+      setPdfDialogOpen(false);
+      setNotice({
+        kind: "success",
+        text: `PDF exportado: ${result.filePath.split(/[\\/]/).at(-1)} (${result.pageCount} página(s)).`,
+      });
+    } catch (error) {
+      setPdfError(error instanceof Error ? error.message : "Não foi possível exportar o PDF.");
+      setPdfProgress(undefined);
+    } finally {
+      if (exportMounted) setPdfExportJob(undefined);
+      setPdfBusy(false);
+      pdfExportInProgressRef.current = false;
+    }
+  }, [book, layout, nativeApi, physicalPages]);
 
   useEffect(() => {
     nativeApi?.setDirty(dirty);
@@ -525,11 +676,12 @@ export default function App() {
   const fileName = filePath?.split(/[\\/]/).at(-1);
 
   return (
-    <div className="app-shell">
+    <>
+      <div className="app-shell">
       <header className="app-bar">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true"><i /><i /></span>
-          <span><strong>Livro Studio</strong><small>objetos e precisão 0.7</small></span>
+          <span><strong>Livro Studio</strong><small>PDF editorial 0.8</small></span>
         </div>
         <div className="document-name" title={filePath ?? "Documento ainda não salvo"}>
           <span className={`saved-indicator ${dirty ? "dirty" : ""}`} />
@@ -541,6 +693,19 @@ export default function App() {
           <button type="button" disabled={!nativeApi} onClick={() => void importManuscript()}>Importar manuscrito</button>
           <button type="button" disabled={!nativeApi} onClick={() => void saveDocument()}>Salvar</button>
           <button className="save-as-button" type="button" disabled={!nativeApi} onClick={() => void saveDocument(true)}>Salvar como</button>
+          <button
+            className="export-pdf-button"
+            type="button"
+            disabled={!canExportPdf || !valid}
+            title={!canExportPdf
+              ? "Reinicie o Livro Studio após recompilar para ativar a ponte nativa de PDF."
+              : "Exportar o documento atual como PDF"}
+            onClick={() => {
+              setPdfError(undefined);
+              setPdfProgress(undefined);
+              setPdfDialogOpen(true);
+            }}
+          >Exportar PDF</button>
         </div>
       </header>
 
@@ -591,6 +756,7 @@ export default function App() {
           activePageIndex={activePageIndex}
           selectedObject={objectSelection}
           pageBreakRequest={pageBreakRequest}
+          focusPageRequest={workspaceFocusRequest}
           onStoryChange={updateStory}
           onStylesChange={updateStyles}
           onInsertPageBreak={() => setPageBreakRequest((current) => current + 1)}
@@ -612,11 +778,36 @@ export default function App() {
       </div>
       {!valid && <div className="validation-banner" role="alert">As margens precisam caber dentro da página e todos os valores devem ser positivos.</div>}
       {notice && <div className={`operation-notice notice-${notice.kind}`} role="status">{notice.text}</div>}
+      {pdfDialogOpen && (
+        <PdfExportDialog
+          totalPages={physicalPages.length}
+          busy={pdfBusy}
+          progress={pdfProgress}
+          error={pdfError}
+          onCancel={() => {
+            setPdfDialogOpen(false);
+            setPdfError(undefined);
+            setPdfProgress(undefined);
+          }}
+          onExport={(options) => void exportPdf(options)}
+        />
+      )}
       <footer className="status-bar">
         <span>{physicalPages.length} {physicalPages.length === 1 ? "página" : "páginas"} · reflow {layout.composeTimeMs.toFixed(1)} ms</span>
         <span>{presetName} · margens {book.pageSetup.mirroredMargins ? "espelhadas" : "fixas"}</span>
         <span>{fileName ?? "Não salvo"} · {nativeApi ? `Desktop · v${nativeApi.version}` : "Preview web"}</span>
       </footer>
-    </div>
+      </div>
+      {pdfExportJob && (
+        <PdfExportDocument
+          exportId={pdfExportJob.id}
+          book={pdfExportJob.book}
+          pages={pdfExportJob.pages}
+          layout={pdfExportJob.layout}
+          physicalPageIndexes={pdfExportJob.physicalPageIndexes}
+          includeBleed={pdfExportJob.includeBleed}
+        />
+      )}
+    </>
   );
 }

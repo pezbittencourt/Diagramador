@@ -11,7 +11,7 @@ export interface ImportedImageFile {
 
 const MAX_IMAGE_BYTES = 50 * 1024 * 1024;
 
-function detectMimeType(buffer: Buffer): SupportedImageMime | undefined {
+export function detectImageMimeType(buffer: Buffer): SupportedImageMime | undefined {
   if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
     return "image/png";
   }
@@ -27,7 +27,7 @@ function detectMimeType(buffer: Buffer): SupportedImageMime | undefined {
 export async function importImageFile(filePath: string): Promise<ImportedImageFile> {
   const buffer = await readFile(filePath);
   if (buffer.length > MAX_IMAGE_BYTES) throw new Error("A imagem excede o limite de 50 MB.");
-  const mimeType = detectMimeType(buffer);
+  const mimeType = detectImageMimeType(buffer);
   if (!mimeType) throw new Error("Formato de imagem inválido. Use PNG, JPEG ou WebP.");
   return {
     fileName: path.basename(filePath),

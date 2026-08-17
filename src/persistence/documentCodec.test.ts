@@ -233,4 +233,57 @@ describe("document persistence codec", () => {
       viewMode: "spread",
     });
   });
+
+  it("migrates a schema 2 image placeholder without reading its absolute path", () => {
+    const current = createDefaultDocument();
+    const legacy = {
+      ...current,
+      schemaVersion: 2,
+      guides: undefined,
+      assets: [{
+        id: "legacy-asset",
+        fileName: "legacy.png",
+        mimeType: "image/png",
+        path: "C:\\Users\\Legacy\\legacy.png",
+      }],
+      pages: [{
+        id: "legacy-page",
+        objects: [{
+          id: "legacy-image",
+          type: "image",
+          assetId: "legacy-asset",
+          x: -3,
+          y: 8,
+          width: 40,
+          height: 20,
+          zIndex: 0,
+        }],
+      }],
+    };
+    const opened = parseDocument(JSON.stringify(legacy));
+    expect(opened.assets[0]).toMatchObject({ encoding: "base64", data: "" });
+    expect(opened.pages[0].objects[0]).toMatchObject({
+      anchorMode: "page",
+      originalAspectRatio: 2,
+      lockAspectRatio: true,
+    });
+    expect(JSON.stringify(opened)).not.toContain("Users\\Legacy");
+  });
+
+  it("rejects corrupt schema 3 assets with invalid dimensions or encoding", () => {
+    const current = createDefaultDocument();
+    const corrupt = {
+      ...current,
+      assets: [{
+        id: "bad",
+        fileName: "bad.png",
+        mimeType: "image/png",
+        encoding: "path",
+        data: "",
+        pixelWidth: 0,
+        pixelHeight: 20,
+      }],
+    };
+    expect(() => parseDocument(JSON.stringify(corrupt))).toThrow(/dimensões positivas/i);
+  });
 });

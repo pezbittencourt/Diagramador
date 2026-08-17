@@ -34,6 +34,7 @@ interface StoryEditorProps {
   onSelectionFormattingChange: (formatting: SelectionFormatting) => void;
   pageBreakRequest: number;
   command?: EditorCommand;
+  onRevealOffset?: (offset: number) => void;
 }
 
 interface HistoryEntry {
@@ -43,16 +44,20 @@ interface HistoryEntry {
 
 function fragmentElement(node: Node | null): HTMLElement | null {
   const element = node instanceof HTMLElement ? node : node?.parentElement;
-  return element?.closest<HTMLElement>("[data-story-from]") ?? null;
+  return element?.closest<HTMLElement>("[data-story-from], [data-line-hit-from]") ?? null;
 }
 
 function domPointToOffset(node: Node | null, offset: number): number | null {
   const fragment = fragmentElement(node);
   if (!fragment) return null;
-  const from = Number(fragment.dataset.storyFrom);
-  const to = Number(fragment.dataset.storyTo);
+  const from = Number(fragment.dataset.storyFrom ?? fragment.dataset.lineHitFrom);
+  const to = Number(fragment.dataset.storyTo ?? fragment.dataset.lineHitTo);
   if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
-  const localOffset = node?.nodeType === Node.TEXT_NODE ? offset : 0;
+  const localOffset = node?.nodeType === Node.TEXT_NODE
+    ? offset
+    : fragment.dataset.lineHitFrom !== undefined && offset > 0
+      ? to - from
+      : 0;
   return Math.min(to, from + Math.max(0, localOffset));
 }
 
@@ -66,19 +71,26 @@ function readDomSelection(root: HTMLElement): StorySelection | null {
 }
 
 function findDomPoint(root: HTMLElement, offset: number): [Node, number] | null {
-  const fragments = root.querySelectorAll<HTMLElement>("[data-story-from]");
-  let fallback: [Node, number] | null = null;
+  const fragments = [...root.querySelectorAll<HTMLElement>("[data-story-from]")];
+  if (!fragments.length) return null;
+  const firstFrom = Number(fragments[0].dataset.storyFrom);
+  const lastTo = Number(fragments.at(-1)?.dataset.storyTo);
+  if (!Number.isFinite(firstFrom) || !Number.isFinite(lastTo)
+      || offset < firstFrom || offset > lastTo) return null;
+  let endBoundary: [Node, number] | null = null;
   for (const fragment of fragments) {
     const from = Number(fragment.dataset.storyFrom);
     const to = Number(fragment.dataset.storyTo);
     const textNode = fragment.firstChild ?? fragment;
     const sourceLength = Math.max(0, to - from);
-    fallback = [textNode, sourceLength];
-    if (offset >= from && offset <= to) {
+    if (offset === from) return [textNode, 0];
+    if (offset > from && offset < to) {
       return [textNode, Math.min(sourceLength, Math.max(0, offset - from))];
     }
+    if (offset === to) endBoundary = [textNode, sourceLength];
+    if (from > offset) break;
   }
-  return fallback;
+  return endBoundary;
 }
 
 export function StoryEditor({
@@ -89,6 +101,7 @@ export function StoryEditor({
   onSelectionFormattingChange,
   pageBreakRequest,
   command,
+  onRevealOffset,
 }: StoryEditorProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const selectionRef = useRef<StorySelection>({ anchor: 0, head: 0 });
@@ -118,6 +131,7 @@ export function StoryEditor({
   }, [content]);
 
   const rememberSelection = useCallback(() => {
+    if (pendingSelectionRef.current) return;
     const root = rootRef.current;
     if (!root) return;
     const selection = readDomSelection(root);
@@ -144,11 +158,14 @@ export function StoryEditor({
     if (!pending || !root) return;
     const anchor = findDomPoint(root, pending.anchor);
     const head = findDomPoint(root, pending.head);
-    if (!anchor || !head) return;
-    window.getSelection()?.setBaseAndExtent(anchor[0], anchor[1], head[0], head[1]);
+    if (!anchor || !head) {
+      onRevealOffset?.(pending.head);
+      return;
+    }
     pendingSelectionRef.current = undefined;
+    window.getSelection()?.setBaseAndExtent(anchor[0], anchor[1], head[0], head[1]);
     root.focus({ preventScroll: true });
-  }, [content, children]);
+  }, [content, children, onRevealOffset]);
 
   const emit = useCallback((result: StoryEditResult, addToHistory = true) => {
     if (addToHistory) {

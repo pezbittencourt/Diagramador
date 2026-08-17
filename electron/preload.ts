@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("livroStudio", {
   platform: process.platform,
-  version: "0.7.0",
+  version: "0.8.0",
   openDocument: () => ipcRenderer.invoke("document:open"),
   importManuscript: () => ipcRenderer.invoke("manuscript:import"),
   pickImage: () => ipcRenderer.invoke("asset:pick-image"),
@@ -12,6 +12,20 @@ contextBridge.exposeInMainWorld("livroStudio", {
     filePath?: string;
     suggestedName: string;
   }) => ipcRenderer.invoke("document:save", request),
+  exportPdf: (request: {
+    suggestedName: string;
+    title: string;
+    widthMm: number;
+    heightMm: number;
+    expectedPageCount: number;
+    cssText: string;
+    htmlChunks: string[];
+    assets: Array<{
+      fileName: string;
+      mimeType: "image/png" | "image/jpeg" | "image/webp";
+      data: string;
+    }>;
+  }) => ipcRenderer.invoke("pdf:export", request),
   confirmUnsavedChanges: (action: string) =>
     ipcRenderer.invoke("document:confirm-unsaved", action),
   setDirty: (dirty: boolean) => ipcRenderer.send("document:set-dirty", dirty),

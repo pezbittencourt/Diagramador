@@ -16,6 +16,7 @@ import type {
   LaidOutInlineRun,
   LaidOutPage,
   LaidOutParagraphFragment,
+  LaidOutTextLine,
   LayoutSnapshot,
 } from "./layoutTypes";
 import type { TextMeasurer } from "./textMeasurement";
@@ -42,6 +43,12 @@ interface WrappedLine {
   from: number;
   to: number;
   heightMm: number;
+  availableWidthMm: number;
+  naturalWidthMm: number;
+}
+
+function whitespaceCount(text: string): number {
+  return [...text].filter((character) => character === " ").length;
 }
 
 function sourceRuns(block: ParagraphNode, style: ParagraphStyle): SourceRun[] {
@@ -127,7 +134,13 @@ function wrapParagraph(
   const runs = sourceRuns(block, style);
   if (!text) {
     return {
-      lines: [{ from: 0, to: 0, heightMm: style.fontSizePt * PT_TO_MM * style.lineHeight }],
+      lines: [{
+        from: 0,
+        to: 0,
+        heightMm: style.fontSizePt * PT_TO_MM * style.lineHeight,
+        availableWidthMm: Math.max(1, widthMm - style.firstLineIndentMm),
+        naturalWidthMm: 0,
+      }],
       runs,
     };
   }
@@ -142,7 +155,13 @@ function wrapParagraph(
       const whitespace = Math.max(candidate.lastIndexOf(" "), candidate.lastIndexOf("\t"));
       if (whitespace > 0) to = from + whitespace + 1;
     }
-    lines.push({ from, to, heightMm: lineHeight(runs, from, to, style) });
+    lines.push({
+      from,
+      to,
+      heightMm: lineHeight(runs, from, to, style),
+      availableWidthMm: lineWidth,
+      naturalWidthMm: measureRange(text, runs, from, to, resolveInlineStyle(style), measurer),
+    });
     from = to;
   }
   return { lines, runs };
@@ -154,18 +173,21 @@ function fragmentRuns(
   to: number,
   blockGlobalStart: number,
   fallbackStyle: ResolvedInlineStyle,
+  measurer: TextMeasurer,
 ): LaidOutInlineRun[] {
   const result: LaidOutInlineRun[] = [];
   for (const run of runs) {
     const overlapFrom = Math.max(from, run.from);
     const overlapTo = Math.min(to, run.to);
     if (overlapFrom < overlapTo) {
+      const text = run.node.text.slice(overlapFrom - run.from, overlapTo - run.from);
       result.push({
-        text: run.node.text.slice(overlapFrom - run.from, overlapTo - run.from),
+        text,
         from: overlapFrom,
         to: overlapTo,
         globalFrom: blockGlobalStart + overlapFrom,
         globalTo: blockGlobalStart + overlapTo,
+        advanceMm: measurer.measure(text, run.style),
         style: run.style,
       });
     }
@@ -177,6 +199,7 @@ function fragmentRuns(
       to,
       globalFrom: blockGlobalStart + from,
       globalTo: blockGlobalStart + to,
+      advanceMm: 0,
       style: fallbackStyle,
     });
   }
@@ -255,13 +278,64 @@ export function composeStory({
       const to = wrapped.lines[endLine - 1].to;
       const endsParagraph = endLine === wrapped.lines.length;
       const fallbackStyle = resolveInlineStyle(style);
+      let lineTopMm = margins.top + page.usedHeightMm + before;
+      const lines: LaidOutTextLine[] = wrapped.lines.slice(lineIndex, endLine).map((wrappedLine, index) => {
+        const paragraphLineIndex = lineIndex + index;
+        const firstParagraphLine = paragraphLineIndex === 0;
+        const isLastLineOfParagraph = paragraphLineIndex === wrapped.lines.length - 1;
+        const lineText = text.slice(wrappedLine.from, wrappedLine.to);
+        const expandableWhitespace = whitespaceCount(lineText);
+        const shouldJustify = style.alignment === "justify"
+          && !isLastLineOfParagraph
+          && expandableWhitespace > 0;
+        const wordSpacingMm = shouldJustify
+          ? Math.max(0, wrappedLine.availableWidthMm - wrappedLine.naturalWidthMm) / expandableWhitespace
+          : 0;
+        const renderedWidthMm = shouldJustify
+          ? wrappedLine.availableWidthMm
+          : wrappedLine.naturalWidthMm;
+        const alignmentOffsetMm = style.alignment === "center"
+          ? Math.max(0, wrappedLine.availableWidthMm - wrappedLine.naturalWidthMm) / 2
+          : style.alignment === "right"
+            ? Math.max(0, wrappedLine.availableWidthMm - wrappedLine.naturalWidthMm)
+            : 0;
+        const result: LaidOutTextLine = {
+          from: wrappedLine.from,
+          to: wrappedLine.to,
+          globalFrom: blockGlobalStart + wrappedLine.from,
+          globalTo: blockGlobalStart + wrappedLine.to,
+          paragraphLineIndex,
+          isLastLineOfParagraph,
+          xMm: margins.left + style.leftIndentMm
+            + (firstParagraphLine ? style.firstLineIndentMm : 0)
+            + alignmentOffsetMm,
+          topMm: lineTopMm,
+          heightMm: wrappedLine.heightMm,
+          availableWidthMm: wrappedLine.availableWidthMm,
+          naturalWidthMm: wrappedLine.naturalWidthMm,
+          renderedWidthMm,
+          wordSpacingMm,
+          alignment: style.alignment,
+          runs: fragmentRuns(
+            wrapped.runs,
+            wrappedLine.from,
+            wrappedLine.to,
+            blockGlobalStart,
+            fallbackStyle,
+            measurer,
+          ),
+        };
+        lineTopMm += wrappedLine.heightMm;
+        return result;
+      });
       const fragment: LaidOutParagraphFragment = {
         kind: "paragraph",
         blockId: block.id,
         styleId: style.id,
         paragraphStyle: style,
         text: text.slice(from, to),
-        runs: fragmentRuns(wrapped.runs, from, to, blockGlobalStart, fallbackStyle),
+        lines,
+        runs: fragmentRuns(wrapped.runs, from, to, blockGlobalStart, fallbackStyle, measurer),
         from,
         to,
         globalFrom: blockGlobalStart + from,

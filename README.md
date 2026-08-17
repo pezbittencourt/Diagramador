@@ -1,8 +1,9 @@
-# Livro Studio 0.7
+# Livro Studio 0.8.0
 
-Editor desktop pessoal focado em escrita e diagramação de livros. A versão 0.7
+Editor desktop pessoal focado em escrita e diagramação de livros. A versão 0.8.0
 combina a história contínua paginada com imagens fixas às páginas físicas,
-réguas, guias, snapping e visualização de página única.
+réguas, guias, snapping, visualização de página única e exportação PDF
+editorial a partir da mesma composição usada no preview.
 
 ## Aviso sobre o projeto
 
@@ -59,6 +60,8 @@ software assistido por Inteligência Artificial**.
 - Electron 43, React 19, TypeScript, Vite e Vitest.
 - `mammoth` para extrair texto e HTML semântico de DOCX.
 - Canvas 2D do Chromium para medir runs tipográficos no preview.
+- `printToPDF` do Chromium para materializar a projeção editorial em PDF.
+- `pdf-lib` para mesclar os lotes e normalizar os metadados do arquivo final.
 
 As decisões de domínio estão em [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
@@ -81,6 +84,15 @@ As decisões de domínio estão em [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 - Visualização em spread ou página única, com página ativa e navegação anterior/próxima.
 - Novo, abrir, salvar, salvar como, dirty state e migração de projetos 0.4.
 - Importação TXT simples e DOCX com formatação básica.
+- Exportação PDF de todas as páginas ou de um intervalo de páginas físicas.
+- Saída no tamanho do trim ou com sangria, preservando texto selecionável, folios,
+  imagens, transparência, empilhamento e geometria fracionária.
+- Preflight de fontes e imagens, conferência do total de páginas e gravação
+  atômica para não expor um PDF parcial no destino.
+- Impressão sequencial em lotes de até 20 páginas numa `BrowserWindow` dedicada,
+  oculta e sandboxed, seguida por merge na ordem física.
+- Desduplicação global de PNG/JPEG/WebP: os chunks HTML usam arquivos relativos
+  e cada imagem incorporada atravessa o IPC e o diretório temporário uma única vez.
 
 O DOCX preserva parágrafos, headings simples, negrito, itálico e sublinhado
 quando expostos pelo conversor. Tabelas, imagens, notas, cabeçalhos, rodapés e
@@ -96,6 +108,11 @@ npm.cmd install
 npm.cmd run dev
 ```
 
+O Vite atualiza o renderer durante o desenvolvimento. Alterações em
+`electron/main.ts`, `electron/preload.ts` ou em dependências carregadas por eles
+exigem encerrar e reiniciar o processo Electron; caso contrário, a ponte nativa
+de PDF pode continuar sendo a versão compilada anteriormente.
+
 Para compilar e abrir a versão de produção:
 
 ```powershell
@@ -107,13 +124,41 @@ npm.cmd start
 ```powershell
 npm.cmd run check
 npm.cmd run smoke
+npm.cmd run scenarios
 npm.cmd run benchmark
+npm.cmd run pdf:smoke
+npm.cmd run pdf:benchmark
 ```
 
 O smoke salva `.tmp/livro-studio-smoke.png` e um projeto schema 3. Ele exercita
 formatação, estilo global, reflow, imagem incorporada, drag, sangria, duplicação,
 guia, página única, persistência, numeração e geometria de spread. O benchmark
 usa mais de 160 mil caracteres, 720 parágrafos, 105 páginas e 40 imagens.
+
+`scenarios` cobre combinações adicionais: zoom de 25% a 200%, nudges, histórico
+gráfico após exclusão, copy/paste sem seleção, histórico textual independente,
+guias negativas, redução drástica da história e reabertura do projeto.
+
+`pdf:smoke` compila o aplicativo e exercita saída A5 com e sem sangria, intervalo
+físico 15–30, independência de zoom/modo de visualização, rich text, folios,
+imagens PNG/JPEG/WebP, transparência, z-order, geometria e continuidade da edição.
+Ele também confere que cada exportação usa e descarta uma única janela de render
+dedicada e que a ordem física permanece intacta no arquivo mesclado.
+Os artefatos ficam em `.tmp/pdf-smoke`. Se Poppler estiver em
+`.tools/poppler-26.02.0-0` ou indicado por `POPPLER_BIN`, o teste também verifica
+texto selecionável, fontes/imagens e faz uma comparação raster independente.
+Na execução final registrada, `pdf:benchmark` exportou 100 páginas, 149.707
+caracteres e 40 imagens válidas em cinco lotes de 20. A exportação levou 2,73 s
+e aumentou o working set em 8,5 MiB. O script rejeita lotes acima de 20 páginas e
+registra duração, tamanho, contagem e distribuição dos lotes; esses valores são
+uma medição do ambiente de teste, não um limite normativo de desempenho.
+
+Para diagnosticar o smoke sem o atalho do `package.json`, use:
+
+```powershell
+npm.cmd run build
+node .\scripts\run-electron.cjs .\scripts\pdf-smoke.cjs
+```
 
 ## Uso manual
 
@@ -139,6 +184,85 @@ usa mais de 160 mil caracteres, 720 parágrafos, 105 páginas e 40 imagens.
     `Ajustar página` sem alterar texto, objetos ou numeração.
 12. Salve/abra normalmente; arquivos schema 1 e 2 são migrados na abertura. TXT
     recebe Corpo de texto e DOCX aproveita formatação básica.
+13. Clique em `Exportar PDF`, escolha todas as páginas ou informe um intervalo de
+    páginas físicas, por exemplo `1-3, 8, 11-13`.
+14. Ative `Incluir sangria` quando o arquivo deva conter a área externa ao trim e
+    escolha o destino no seletor nativo. Intervalos sobrepostos ou repetidos são
+    normalizados e cada página física é emitida uma única vez, em ordem.
+15. A exportação usa o estado corrente em memória, inclusive alterações ainda não
+    salvas, sem mudar o zoom, a página ativa, o modo de visualização ou o dirty state.
+
+## Exportação PDF editorial
+
+O intervalo sempre se refere à **página física** do Livro Studio, não ao folio
+editorial impresso. A página física 1 continua sendo a primeira folha individual
+do arquivo, mesmo quando está no slot direito de um spread; o PDF nunca combina um
+spread em uma única página. Hífens, en dashes e em dashes são aceitos nos
+intervalos, que são validados antes de abrir o seletor de destino.
+
+O fluxo da exportação é:
+
+1. resolver as páginas físicas e validar objetos/assets;
+2. montar uma superfície editorial isolada com o `LayoutSnapshot` corrente;
+3. aguardar `document.fonts.ready`, confirmar cada família/peso/itálico local
+   usado nas páginas e decodificar todas as imagens;
+4. projetar linhas, folios e objetos e serializar o HTML em lotes de no máximo
+   20 páginas; PNG/JPEG/WebP repetidos são extraídos uma vez para `assets`, seus
+   data URLs são trocados por `./assets/...` e a superfície React é desmontada;
+5. validar no processo principal o CSS, os tamanhos, a soma, o teto defensivo de
+   25 páginas por lote, as identidades físicas/de saída e todos os assets;
+6. criar um diretório temporário exclusivo, gravar CSS e assets uma vez e carregar
+   cada HTML sequencialmente por URL `file:` numa `BrowserWindow` sandboxed;
+7. imprimir um lote, acrescentá-lo imediatamente ao documento `pdf-lib` e apagar
+   seu HTML antes de criar o próximo;
+8. definir metadados, validar a contagem final e somente então realizar a gravação
+   atômica do PDF mesclado.
+
+Preview e PDF compartilham `ComposedTextLayer`: o preview converte mm/pt para pixels
+no zoom atual e o PDF emite as mesmas linhas em mm/pt. O snapshot já contém X, Y,
+altura, largura disponível/natural, espaçamento de justificação, offsets e runs;
+portanto o Chromium pinta e incorpora o texto, mas não decide novamente onde
+quebrar linhas ou páginas. Controles, guias, réguas, seleção e demais elementos da
+interface não entram na superfície exportada.
+
+No preview, inclusive `line-height` é emitido como um valor CSS explícito em `px`,
+não como número sem unidade. Isso evita que o navegador o interprete como fator
+multiplicador da fonte e mantém a altura medida da linha. Depois que os lotes e
+assets são serializados, o App desmonta imediatamente a superfície transitória;
+ela não permanece viva durante o seletor, a impressão ou o merge.
+
+A janela principal do editor não é usada como alvo de `printToPDF`. O processo
+principal cria uma janela exclusiva com `sandbox: true`, isolamento de contexto,
+Node desativado e sem exibição. Cada lote é um arquivo HTML temporário carregado
+por `file:`, com CSS e imagens relativos; não há um documento monolítico em URL
+`data:`. A janela aguarda fontes e imagens e chama `printToPDF` com tamanho físico,
+escala 1, fundo impresso e margem zero. O limite padrão é 60 segundos por lote: ao
+excedê-lo, a janela é destruída, a exportação falha e nenhum arquivo final é
+substituído. A mesma destruição ocorre ao concluir ou encontrar outro erro.
+
+Sem sangria, o `MediaBox` tem o tamanho nominal da página e qualquer parte de
+objeto fora do trim é recortada. Com sangria, a caixa recebe topo + base e
+interno + externo; `resolveFacingEdges` converte interno/externo para
+esquerda/direita conforme o lado da página física, e o trim é deslocado dentro
+dessa caixa. Imagens continuam ancoradas ao trim, inclusive com X/Y negativos.
+
+Antes da impressão, o main confirma base64, assinatura real, MIME, extensão,
+tamanho, unicidade e uso de cada asset; os `src` só podem apontar para a lista
+autorizada. Também exige `data-output-page` contíguo e `data-physical-page`
+estritamente crescente, detectando omissões, duplicações e reordenação.
+
+Cada PDF parcial tem sua contagem conferida e suas páginas são copiadas
+imediatamente para um único `PDFDocument`; no fluxo de produção, não existe mais
+um array com todos os buffers parciais. `pdf-lib` define `Title` com o título do livro e `Creator` e
+`Producer` como `Livro Studio 0.8.0`. O buffer final só chega ao destino depois da
+nova conferência de contagem. Ele é escrito em um temporário no mesmo diretório,
+sincronizado e renomeado. Se a substituição direta falhar, o arquivo anterior
+recebe um backup e é restaurado caso a segunda renomeação também falhe.
+
+CSS e assets são gravados uma vez no diretório temporário de impressão; cada HTML
+é removido logo após seu lote ser incorporado. O `finally` destrói a janela e
+remove o diretório restante. Se a própria limpeza falhar depois de outro erro, o
+erro operacional original é preservado junto dos erros de limpeza.
 
 ## Modelo de objetos e assets
 
@@ -157,7 +281,7 @@ As guias manuais são globais nesta versão: a mesma posição em mm aparece em
 todas as páginas. Margens, trim, centros, sangrias e guias são candidatos de
 snap; a tolerância é visual, portanto acompanha o zoom.
 
-## Limitações conhecidas do 0.7
+## Limitações conhecidas do 0.8.0
 
 - O histórico é local à sessão, tem 200 entradas e agrupa cada operação
   individualmente; edições globais de estilos não entram no undo.
@@ -166,14 +290,29 @@ snap; a tolerância é visual, portanto acompanha o zoom.
   keep-with-next.
 - Reflow é integral e todos os spreads são renderizados; livros muito longos
   precisarão de composição incremental e virtualização.
-- Fontes precisam estar disponíveis no sistema; incorporação ainda não existe.
+- Fontes precisam estar disponíveis no sistema. O preflight rejeita famílias ou
+  variantes locais ausentes para evitar substituição silenciosa; a incorporação,
+  o subset e o mapeamento Unicode finais continuam sob responsabilidade do Chromium
+  e das permissões da fonte.
 - O DOCX depende da semântica do Mammoth; alinhamento direto e page breaks do
   Word nem sempre chegam ao HTML intermediário.
 - Imagens são fixas à página: ainda não há wrap, imagem inline, âncora em
   parágrafo, crop, rotação, máscaras, filtros, seleção múltipla ou distribuição.
 - Guias manuais são globais; não há guias exclusivas por página nem painel de
   layers completo.
-- Assets base64 podem tornar projetos com muitas imagens grandes; ainda não há
-  compactação/empacotamento final `.livro`.
-- PDF e EPUB ainda não foram implementados. O próximo marco previsto é a
-  exportação PDF fiel ao preview.
+- Assets base64 ainda podem tornar o JSON do projeto grande; não há
+  compactação/empacotamento final `.livro`. Na rota PDF, porém, imagens repetidas
+  são desduplicadas e o base64 não permanece nos chunks HTML.
+- Cada lote ainda é codificado pelo Chromium/Skia, portanto o arquivo não promete
+  estabilidade byte a byte entre versões do Electron. Após o merge, entretanto,
+  `Title`, `Creator` e `Producer` são controlados; `Producer` é
+  `Livro Studio 0.8.0`.
+- A conversão CSS de mm para pontos pode introduzir arredondamentos pequenos no
+  `MediaBox` e nas coordenadas. Os testes comparam dimensões com tolerância numérica,
+  não por igualdade textual do PDF.
+- Parágrafos/runs vazios usam o caractere invisível U+200B para manter caret e altura
+  de linha. Dependendo do extrator, esse caractere pode aparecer no texto extraído
+  do PDF, embora não seja visível na página.
+- A saída ainda não é PDF/X, não oferece CMYK, perfil ICC, marcas de corte ou
+  imposição; cores seguem o pipeline RGB do Chromium.
+- EPUB ainda não foi implementado.

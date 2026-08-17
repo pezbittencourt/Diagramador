@@ -42,8 +42,12 @@ function marksForStack(stack: string[], spanStyle = ""): RichTextMark[] {
   return marks.sort((left, right) => left.type.localeCompare(right.type));
 }
 
-function parseInline(source: string): InlineTextNode[] {
-  const nodes: InlineTextNode[] = [];
+function styleAttribute(attributes: string): string {
+  return attributes.match(/\bstyle\s*=\s*(["'])([\s\S]*?)\1/i)?.[2] ?? "";
+}
+
+function parseInlineLines(source: string, inheritedStyle = ""): InlineTextNode[][] {
+  const lines: InlineTextNode[][] = [[]];
   const stack: string[] = [];
   const styleStack: string[] = [];
   const tokens = source.match(/<[^>]+>|[^<]+/g) ?? [];
@@ -51,8 +55,11 @@ function parseInline(source: string): InlineTextNode[] {
     if (!token.startsWith("<")) {
       const text = decodeHtml(token);
       if (text) {
-        const marks = marksForStack(stack, styleStack.join(";"));
-        nodes.push({ type: "text", text, ...(marks.length ? { marks } : {}) });
+        const marks = marksForStack(
+          stack,
+          [...styleStack, inheritedStyle].filter(Boolean).join(";"),
+        );
+        lines.at(-1)?.push({ type: "text", text, ...(marks.length ? { marks } : {}) });
       }
       continue;
     }
@@ -66,11 +73,15 @@ function parseInline(source: string): InlineTextNode[] {
       continue;
     }
     const opening = token.match(/^<\s*([\w-]+)/)?.[1]?.toLowerCase();
-    if (!opening || token.endsWith("/>") || opening === "br") continue;
+    if (opening === "br") {
+      lines.push([]);
+      continue;
+    }
+    if (!opening || token.endsWith("/>")) continue;
     stack.push(opening);
-    styleStack.push(token.match(/style\s*=\s*["']([^"']*)["']/i)?.[1] ?? "");
+    styleStack.push(styleAttribute(token));
   }
-  return mergeAdjacentInlineNodes(nodes);
+  return lines.map((nodes) => mergeAdjacentInlineNodes(nodes));
 }
 
 function paragraphAlignment(attributes: string): ParagraphAlignment | undefined {
@@ -80,20 +91,26 @@ function paragraphAlignment(attributes: string): ParagraphAlignment | undefined 
 
 export function docxHtmlToStoryContent(html: string): RichTextDocument {
   const blocks: StoryBlock[] = [];
-  const blockPattern = /<(p|h[1-6])\b([^>]*)>([\s\S]*?)<\/\1>|<(?:hr|br)\b([^>]*data-page-break[^>]*)>/gi;
+  const blockPattern = /<(p|h[1-6]|li)\b([^>]*)>([\s\S]*?)<\/\1>|<(?:hr|br)\b([^>]*data-page-break[^>]*)>/gi;
   for (const match of html.matchAll(blockPattern)) {
     if (!match[1]) {
       blocks.push({ type: "pageBreak", id: crypto.randomUUID() });
       continue;
     }
     const tag = match[1].toLowerCase();
-    const alignment = paragraphAlignment(match[2] ?? "");
-    const paragraph: ParagraphNode = {
-      ...createParagraph("", tag === "h1" ? "chapter-title" : tag.startsWith("h") ? "subtitle" : "body"),
-      content: parseInline(match[3] ?? ""),
-    };
-    if (alignment) paragraph.attrs.overrides = { alignment };
-    blocks.push(paragraph);
+    const attributes = match[2] ?? "";
+    const alignment = paragraphAlignment(attributes);
+    const inheritedStyle = styleAttribute(attributes);
+    const styleId = tag === "h1" ? "chapter-title" : tag.startsWith("h") ? "subtitle" : "body";
+    const lines = parseInlineLines(match[3] ?? "", inheritedStyle);
+    for (const content of lines) {
+      const paragraph: ParagraphNode = {
+        ...createParagraph("", styleId),
+        content,
+      };
+      if (alignment) paragraph.attrs.overrides = { alignment };
+      blocks.push(paragraph);
+    }
   }
   return { type: "doc", content: blocks.length ? blocks : [createParagraph()] };
 }

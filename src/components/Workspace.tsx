@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AssetReference,
   BookPage,
@@ -37,6 +37,7 @@ interface WorkspaceProps {
   activePageIndex: number;
   selectedObject?: { pageIndex: number; objectId: string };
   pageBreakRequest: number;
+  focusPageRequest: number;
   onStoryChange: (content: RichTextDocument) => void;
   onStylesChange: (styles: ParagraphStyle[]) => void;
   onInsertPageBreak: () => void;
@@ -75,6 +76,7 @@ export function Workspace({
   activePageIndex,
   selectedObject,
   pageBreakRequest,
+  focusPageRequest,
   onStoryChange,
   onStylesChange,
   onInsertPageBreak,
@@ -106,32 +108,89 @@ export function Workspace({
   const spreadPageWidth = (
     setup.width + setup.bleed.inner + setup.bleed.outer
   ) * 96 / 25.4 * zoom / 100;
+  const revealStoryOffset = useCallback((offset: number) => {
+    if (viewMode !== "single") return;
+    const lines = layout.pages.flatMap((page) => page.fragments.flatMap((fragment) =>
+      fragment.lines.map((line) => ({ pageIndex: page.physicalIndex, line }))));
+    const target = lines.find(({ line }) => line.globalFrom === offset)
+      ?? lines.find(({ line }) => line.globalFrom < offset && offset <= line.globalTo)
+      ?? lines.find(({ line }) => line.globalFrom > offset)
+      ?? lines.at(-1);
+    if (target && target.pageIndex !== activePageIndex) onActivePageChange(target.pageIndex);
+  }, [activePageIndex, layout.pages, onActivePageChange, viewMode]);
+  const centerPageInViewport = useCallback((pageIndex: number, behavior: ScrollBehavior) => {
+    const viewport = viewportRef.current;
+    const page = viewport?.querySelector<HTMLElement>(`[data-page-index="${pageIndex}"]`);
+    if (!viewport || !page) return;
+    const viewportRect = viewport.getBoundingClientRect();
+    const pageRect = page.getBoundingClientRect();
+    viewport.scrollTo({
+      left: viewport.scrollLeft
+        + pageRect.left + pageRect.width / 2
+        - (viewportRect.left + viewportRect.width / 2),
+      top: viewport.scrollTop
+        + pageRect.top + pageRect.height / 2
+        - (viewportRect.top + viewportRect.height / 2),
+      behavior,
+    });
+  }, []);
 
   useEffect(() => setTargetPage(String(activePageIndex + 1)), [activePageIndex]);
 
   useEffect(() => {
+    if (!focusPageRequest) return;
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      centerPageInViewport(activePageIndex, "auto");
+      secondFrame = window.requestAnimationFrame(() => centerPageInViewport(activePageIndex, "auto"));
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [activePageIndex, centerPageInViewport, focusPageRequest]);
+
+  useEffect(() => {
+    if (viewMode !== "single") return;
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => centerPageInViewport(activePageIndex, "auto"));
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [activePageIndex, centerPageInViewport, viewMode]);
+
+  useEffect(() => {
     const onObjectKeyDown = (event: KeyboardEvent) => {
-      if (!selectedObject) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest(".positioned-object")) return;
       if (target?.matches("input, textarea, select") || target?.closest(".story-editor")) return;
       const modifier = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
+      if (modifier && key === "v") {
+        event.preventDefault();
+        onPasteObject();
+        return;
+      }
+      if (modifier && key === "z") {
+        event.preventDefault();
+        event.shiftKey ? onGraphicRedo() : onGraphicUndo();
+        return;
+      }
+      if (modifier && key === "y") {
+        event.preventDefault();
+        onGraphicRedo();
+        return;
+      }
+      if (!selectedObject) return;
       if (modifier && key === "d") {
         event.preventDefault();
         onDuplicateObject(selectedObject.pageIndex, selectedObject.objectId);
       } else if (modifier && key === "c") {
         event.preventDefault();
         onCopyObject(selectedObject.pageIndex, selectedObject.objectId);
-      } else if (modifier && key === "v") {
-        event.preventDefault();
-        onPasteObject();
-      } else if (modifier && key === "z") {
-        event.preventDefault();
-        event.shiftKey ? onGraphicRedo() : onGraphicUndo();
-      } else if (modifier && key === "y") {
-        event.preventDefault();
-        onGraphicRedo();
       } else if (event.key === "Delete" || event.key === "Backspace") {
         event.preventDefault();
         onDeleteObject(selectedObject.pageIndex, selectedObject.objectId);
@@ -192,21 +251,14 @@ export function Workspace({
     const number = Math.max(1, Math.min(pages.length, Number(targetPage) || 1));
     setTargetPage(String(number));
     onActivePageChange(number - 1);
-    if (viewMode === "single") return;
-    viewportRef.current
-      ?.querySelector<HTMLElement>(`[data-page-index="${number - 1}"]`)
-      ?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+    if (viewMode === "spread") centerPageInViewport(number - 1, "smooth");
   };
 
   const navigateTo = (pageIndex: number) => {
     const next = Math.max(0, Math.min(pages.length - 1, pageIndex));
     onActivePageChange(next);
     setTargetPage(String(next + 1));
-    if (viewMode === "spread") {
-      window.requestAnimationFrame(() => viewportRef.current
-        ?.querySelector<HTMLElement>(`[data-page-index="${next}"]`)
-        ?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" }));
-    }
+    if (viewMode === "spread") window.requestAnimationFrame(() => centerPageInViewport(next, "smooth"));
   };
 
   const visibleSpreads = viewMode === "spread" ? spreads : [{
@@ -268,9 +320,19 @@ export function Workspace({
             onSelectionFormattingChange={setFormatting}
             pageBreakRequest={pageBreakRequest}
             command={command}
+            onRevealOffset={revealStoryOffset}
           >
             {visibleSpreads.map((spread) => (
-              <section className="spread-unit" key={spread.pages[0].physicalIndex}>
+              <section
+                className="spread-unit"
+                key={spread.pages[0].physicalIndex}
+                style={viewMode === "spread" && spread.pages.length === 1
+                  ? {
+                    transform: `translateX(${(spread.pages[0].slot === "right" ? -1 : 1)
+                      * (spreadPageWidth + spreadGap) / 2}px)`,
+                  }
+                  : undefined}
+              >
                 <div className="spread-label" contentEditable={false}>
                   <span>{spread.label}</span>
                   <span>{setup.width} × {setup.height} mm</span>
