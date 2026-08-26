@@ -1,0 +1,58 @@
+:root {
+  --ui-bg: #d9ddd8;
+  --ui-canvas: #cbd0cc;
+  --ui-surface: #f7f6f1;
+  --ui-surface-raised: #fbfaf6;
+  --ui-surface-muted: #eef0ec;
+  --ui-surface-active: #efe4d2;
+  --ui-header: #17201d;
+  --ui-header-raised: #222d29;
+  --ui-border: #c9cdc8;
+  --ui-border-soft: #dedfd9;
+  --ui-border-strong: #aeb5b0;
+  --ui-text: #26302c;
+  --ui-text-muted: #6f7772;
+  --ui-text-on-dark: #f4f2ea;
+  --ui-accent: #9a6c2b;
+  --ui-accent-hover: #80591f;
+  --ui-accent-soft: #efe4d2;
+  --ui-focus: #a57531;
+  --ui-hover: #f0f1ed;
+  --ui-active: #e4e7e3;
+  --ui-success: #315d4b;
+  --ui-warning: #8a622a;
+  --ui-danger: #8b4039;
+  --ui-danger-soft: #fff0ed;
+
+  --ui-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ui-font-display: Georgia, "Times New Roman", serif;
+  --ui-font-xs: 10px;
+  --ui-font-sm: 11px;
+  --ui-font-md: 12px;
+  --ui-font-lg: 16px;
+  --ui-font-xl: 20px;
+
+  --ui-space-1: 4px;
+  --ui-space-2: 6px;
+  --ui-space-3: 8px;
+  --ui-space-4: 12px;
+  --ui-space-5: 16px;
+  --ui-space-6: 22px;
+  --ui-space-7: 28px;
+
+  --ui-radius-sm: 4px;
+  --ui-radius-md: 6px;
+  --ui-radius-lg: 9px;
+  --ui-shadow-sm: 0 1px 4px #26312c18;
+  --ui-shadow-md: 0 4px 20px #25302c25;
+  --ui-shadow-lg: 0 24px 70px #17201d55;
+  --ui-focus-ring: 0 0 0 2px #bb8a4430;
+
+  --ui-control-height: 32px;
+  --ui-control-height-compact: 27px;
+  --ui-sidebar-width: 292px;
+  --ui-appbar-height: 54px;
+  --ui-toolbar-height: 45px;
+  --ui-statusbar-height: 26px;
+  --ui-transition-fast: 150ms ease;
+}

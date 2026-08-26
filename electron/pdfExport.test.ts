@@ -192,8 +192,8 @@ describe("renderAndWritePdf", () => {
     const merged = await PDFDocument.load(mergedBuffer, { updateMetadata: false });
     expect(merged.getPages().map((page) => page.getWidth())).toEqual([101, 102, 201]);
     expect(merged.getTitle()).toBe("Título do benchmark");
-    expect(merged.getCreator()).toBe("Livro Studio 0.8.0");
-    expect(merged.getProducer()).toBe("Livro Studio 0.8.0");
+    expect(merged.getCreator()).toBe("Livro Studio 1.0.0");
+    expect(merged.getProducer()).toBe("Livro Studio 1.0.0");
     expect(result).toEqual({
       byteLength: mergedBuffer.byteLength,
       pageCount: 3,
@@ -240,6 +240,25 @@ describe("renderAndWritePdf", () => {
     expect(window.destroy).toHaveBeenCalledOnce();
     expect(pdfFileMocks.countPdfPages).not.toHaveBeenCalled();
     expect(pdfFileMocks.writePdfFileAtomic).not.toHaveBeenCalled();
+  });
+
+  it("repete uma carga file: transitoriamente recusada sem desativar o sandbox", async () => {
+    const chunkPdf = await pdfWithPageWidths([148]);
+    const window = createRenderWindow(vi.fn().mockResolvedValue(chunkPdf));
+    vi.mocked(window.loadURL)
+      .mockRejectedValueOnce(new Error("ERR_FAILED loading file:"))
+      .mockRejectedValueOnce(new Error("ERR_FAILED loading file:"))
+      .mockResolvedValue(undefined);
+    pdfFileMocks.countPdfPages.mockImplementation(uncompressedPageCount);
+
+    await renderPdfChunksAndWriteFile(
+      () => window,
+      "C:\\exports\\livro.pdf",
+      chunkRequest([htmlChunk(1, "retry")], 1),
+    );
+
+    expect(window.loadURL).toHaveBeenCalledTimes(3);
+    expect(pdfFileMocks.writePdfFileAtomic).toHaveBeenCalledOnce();
   });
 
   it("materializa CSS e assets desduplicados uma vez e remove os temporarios", async () => {

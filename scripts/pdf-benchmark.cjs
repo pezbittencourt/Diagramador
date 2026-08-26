@@ -2,6 +2,7 @@
 
 const { performance } = require("node:perf_hooks");
 const fs = require("node:fs/promises");
+const os = require("node:os");
 const path = require("node:path");
 const { app, BrowserWindow, ipcMain, nativeImage } = require("electron");
 
@@ -12,7 +13,7 @@ const pdfExportEntry = path.join(root, "dist-electron", "pdfExport.js");
 const pdfFilesEntry = path.join(root, "dist-electron", "pdfFiles.js");
 const outputDir = path.join(root, ".tmp", "pdf-benchmark");
 const outputPath = path.join(outputDir, "livro-studio-100-pages.pdf");
-const userDataPath = path.join(outputDir, `electron-user-data-${process.pid}`);
+const userDataPath = path.join(os.tmpdir(), `livro-studio-pdf-benchmark-${process.pid}`);
 
 const EXPECTED_MIN_PAGES = 100;
 const EXPECTED_MAX_PAGES = 105;
@@ -33,6 +34,8 @@ app.disableHardwareAcceleration();
 app.commandLine.appendSwitch("in-process-gpu");
 app.commandLine.appendSwitch("disable-gpu-sandbox");
 app.setPath("userData", userDataPath);
+
+ipcMain.on("app:get-version", (event) => { event.returnValue = app.getVersion(); });
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -229,8 +232,13 @@ function registerIpcHandlers(renderPdfChunksAndWriteFile) {
     canceled: false,
     filePath: path.join(outputDir, "benchmark-state.json"),
   }));
+  ipcMain.handle("document:autosave", async () => ({ skipped: true }));
+  ipcMain.handle("recovery:list", async () => []);
+  ipcMain.handle("backup:recover", async () => ({ canceled: true, unavailable: true }));
   ipcMain.handle("app:open-external", async () => true);
   ipcMain.on("document:set-dirty", () => undefined);
+  ipcMain.on("document:set-operation-busy", () => undefined);
+  ipcMain.on("document:new-session", () => undefined);
   ipcMain.on("document:finish-close", () => undefined);
 
   ipcMain.handle("manuscript:import", async (event) => {

@@ -72,6 +72,7 @@ export function PositionedObjectLayer({
   const [drag, setDrag] = useState<DragState>();
   const [resize, setResize] = useState<DragState & { handle: ResizeHandle }>();
   const [feedback, setFeedback] = useState<SnapFeedback>({});
+  const [invalidAssetKeys, setInvalidAssetKeys] = useState<Set<string>>(() => new Set());
   const assetMap = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
   const margins = resolveFacingEdges(setup.margins, pageIndex, setup.mirroredMargins);
   const bleed = resolveFacingEdges(setup.bleed, pageIndex, setup.mirroredMargins);
@@ -152,6 +153,9 @@ export function PositionedObjectLayer({
         .sort((a, b) => a.zIndex - b.zIndex)
         .map((object) => {
           const asset = assetMap.get(object.assetId);
+          const assetKey = asset?.data
+            ? `${asset.id}:${asset.mimeType}:${asset.data.length}:${asset.data.slice(0, 24)}`
+            : undefined;
           const selected = selectedObjectId === object.id;
           return (
             <div
@@ -210,8 +214,22 @@ export function PositionedObjectLayer({
                 onPaste();
               }}
             >
-              {asset?.data
-                ? <img src={imageDataUrl(asset)} alt="" draggable={false} />
+              {asset?.data && assetKey && !invalidAssetKeys.has(assetKey)
+                ? (
+                    <img
+                      src={imageDataUrl(asset)}
+                      alt=""
+                      draggable={false}
+                      onError={() => {
+                        setInvalidAssetKeys((current) => {
+                          if (current.has(assetKey)) return current;
+                          const next = new Set(current);
+                          next.add(assetKey);
+                          return next;
+                        });
+                      }}
+                    />
+                  )
                 : <div className="missing-image">Imagem indisponível</div>}
               {selected && HANDLES.map((handle) => (
                 <button

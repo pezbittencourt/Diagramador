@@ -1,4 +1,5 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
+import { writeFileAtomic } from "./atomicFiles.js";
 
 export async function readDocumentFile(filePath: string): Promise<string> {
   return readFile(filePath, "utf8");
@@ -8,5 +9,5 @@ export async function writeDocumentFile(
   filePath: string,
   content: string,
 ): Promise<void> {
-  await writeFile(filePath, content, "utf8");
+  await writeFileAtomic(filePath, Buffer.from(content, "utf8"));
 }

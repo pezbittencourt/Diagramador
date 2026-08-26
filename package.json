@@ -1,6 +1,6 @@
 {
   "name": "livro-studio",
-  "version": "0.8.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Editor desktop pessoal para escrita e diagramação de livros.",
   "main": "dist-electron/main.js",
@@ -14,11 +14,20 @@
     "scenarios": "npm run build && node scripts/run-electron.cjs scripts/scenarios.cjs",
     "pdf:smoke": "npm run build && node scripts/run-electron.cjs scripts/pdf-smoke.cjs",
     "pdf:benchmark": "npm run build && node scripts/run-electron.cjs scripts/pdf-benchmark.cjs",
+    "project:benchmark": "npm run build && node scripts/project-benchmark.cjs",
+    "build:assets": "node scripts/generate-placeholder-icons.cjs",
+    "clean:release": "node scripts/clean-release.cjs",
+    "package": "npm run clean:release && npm run build && npm run build:assets && electron-builder --win dir --x64 --publish never",
+    "packaged:smoke": "node scripts/packaged-smoke.cjs",
+    "packaged:benchmark": "node scripts/packaged-smoke.cjs --benchmark",
+    "dist": "npm run clean:release && npm run build && npm run build:assets && electron-builder --win nsis --x64 --publish never && npm run packaged:smoke && npm run checksum",
+    "checksum": "node scripts/checksum.cjs",
     "benchmark": "tsc -p tsconfig.electron.json && tsc --ignoreConfig --outDir .tmp/benchmark --rootDir src --module Node16 --moduleResolution Node16 --target ES2022 --skipLibCheck src/domain/defaultDocument.ts src/domain/document.ts src/domain/objectGeometry.ts src/domain/pageGeometry.ts src/domain/textFormatting.ts src/domain/textStory.ts src/layout/layoutTypes.ts src/layout/pageSynchronization.ts src/layout/pagination.ts src/layout/spreads.ts src/layout/textMeasurement.ts src/persistence/documentCodec.ts && node scripts/benchmark.cjs",
     "test": "vitest run --exclude dist-electron/** --exclude dist-benchmark/**",
     "check": "npm run test && npm run build"
   },
   "dependencies": {
+    "jszip": "^3.10.1",
     "mammoth": "^1.12.1",
     "pdf-lib": "^1.17.1",
     "react": "^19.2.8",
@@ -32,9 +41,63 @@
     "concurrently": "^10.0.4",
     "cross-env": "^10.1.0",
     "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
     "typescript": "^7.0.2",
     "vite": "^8.2.1",
     "vitest": "^4.1.10",
     "wait-on": "^9.1.0"
+  },
+  "build": {
+    "appId": "com.livrostudio.desktop",
+    "productName": "Livro Studio",
+    "asar": true,
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json",
+      "!**/*.map",
+      "!**/*.test.*"
+    ],
+    "extraResources": [
+      { "from": "build/app.ico", "to": "app.ico" },
+      { "from": "build/livro.ico", "to": "livro.ico" },
+      { "from": "THIRD_PARTY_NOTICES.txt", "to": "THIRD_PARTY_NOTICES.txt" }
+    ],
+    "fileAssociations": [
+      {
+        "ext": "livro",
+        "name": "LivroStudio.Document",
+        "description": "Documento do Livro Studio",
+        "icon": "livro.ico",
+        "role": "Editor"
+      }
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "app.ico",
+      "executableName": "Livro Studio",
+      "requestedExecutionLevel": "asInvoker",
+      "artifactName": "Livro Studio Setup ${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Livro Studio",
+      "uninstallDisplayName": "Livro Studio",
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": false,
+      "installerIcon": "build/app.ico",
+      "uninstallerIcon": "build/app.ico",
+      "installerHeaderIcon": "build/app.ico",
+      "include": "build/installer.nsh"
+    }
   }
 }

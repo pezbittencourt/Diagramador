@@ -1,11 +1,12 @@
 import type { PrintToPDFOptions, WebContents } from "electron";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { PDFDocument } from "pdf-lib";
 import { detectImageMimeType, type SupportedImageMime } from "./imageFiles.js";
 import { countPdfPages, writePdfFileAtomic } from "./pdfFiles.js";
+import { APP_NAME, APP_VERSION } from "./appMetadata.js";
 
 const MAX_CSS_BYTES = 4 * 1024 * 1024;
 const MAX_HTML_CHUNK_BYTES = 64 * 1024 * 1024;
@@ -15,7 +16,7 @@ const MAX_PDF_ASSETS = 2_000;
 const MAX_PDF_ASSET_BYTES = 50 * 1024 * 1024;
 const MAX_TOTAL_PDF_ASSET_BYTES = 512 * 1024 * 1024;
 const DEFAULT_CHUNK_TIMEOUT_MS = 60_000;
-const PDF_APPLICATION_NAME = "Livro Studio 0.8.0";
+const PDF_APPLICATION_NAME = `${APP_NAME} ${APP_VERSION}`;
 
 export interface PdfRenderRequest {
   widthMm: number;
@@ -362,7 +363,18 @@ async function renderChunk(
   timeoutMs: number,
 ): Promise<Buffer> {
   const operation = (async () => {
-    await window.loadURL(documentUrl);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await window.loadURL(documentUrl);
+        break;
+      } catch (error) {
+        const transientFileLoad = attempt < 2 && error instanceof Error &&
+          /ERR_FAILED|loading ['"]file:/u.test(error.message);
+        if (!transientFileLoad) throw error;
+        await access(fileURLToPath(documentUrl));
+        await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+      }
+    }
     await window.webContents.executeJavaScript(WAIT_FOR_PRINT_RESOURCES);
     const buffer = await window.webContents.printToPDF(physicalPrintOptions(request));
     const pageCount = countPdfPages(buffer);

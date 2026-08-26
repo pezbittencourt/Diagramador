@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, nativeImage } = require("electron");
 const { execFile } = require("node:child_process");
 const fs = require("node:fs/promises");
+const os = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
 
@@ -8,7 +9,7 @@ const execFileAsync = promisify(execFile);
 
 const root = path.resolve(__dirname, "..");
 const outputDirectory = path.join(root, ".tmp", "pdf-smoke");
-const userDataPath = path.join(outputDirectory, `electron-user-data-${process.pid}`);
+const userDataPath = path.join(os.tmpdir(), `livro-studio-pdf-smoke-${process.pid}`);
 const outputPaths = [
   path.join(outputDirectory, "a5-no-bleed.pdf"),
   path.join(outputDirectory, "a5-no-bleed-single-200.pdf"),
@@ -40,8 +41,13 @@ app.commandLine.appendSwitch("in-process-gpu");
 app.commandLine.appendSwitch("disable-gpu-sandbox");
 app.setPath("userData", userDataPath);
 
+ipcMain.on("app:get-version", (event) => { event.returnValue = app.getVersion(); });
+
 ipcMain.handle("document:open", () => ({ canceled: true }));
 ipcMain.handle("document:save", () => ({ canceled: true }));
+ipcMain.handle("document:autosave", () => ({ skipped: true }));
+ipcMain.handle("recovery:list", () => []);
+ipcMain.handle("backup:recover", () => ({ canceled: true, unavailable: true }));
 ipcMain.handle("document:confirm-unsaved", () => "discard");
 ipcMain.handle("manuscript:confirm-replace", () => true);
 ipcMain.handle("manuscript:import", () => ({
@@ -62,6 +68,8 @@ ipcMain.handle("asset:pick-image", () => {
   return { canceled: false, image };
 });
 ipcMain.on("document:set-dirty", () => undefined);
+ipcMain.on("document:set-operation-busy", () => undefined);
+ipcMain.on("document:new-session", () => undefined);
 ipcMain.on("document:finish-close", () => undefined);
 
 function assert(condition, message) {
@@ -464,6 +472,9 @@ app.whenReady().then(async () => {
             sandbox: true,
             backgroundThrottling: false,
           },
+        });
+        browserWindow.webContents.on("render-process-gone", (_event, details) => {
+          console.error(`[pdf-smoke] dedicated renderer exited: ${JSON.stringify(details)}`);
         });
         renderWindow = {
           webContents: browserWindow.webContents,

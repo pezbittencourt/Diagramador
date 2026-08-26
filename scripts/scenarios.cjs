@@ -6,7 +6,7 @@ const root = path.resolve(__dirname, "..");
 const outputDirectory = path.join(root, ".tmp");
 const screenshotPath = path.join(outputDirectory, "livro-studio-scenarios.png");
 const userDataPath = path.join(outputDirectory, "electron-scenarios-user-data");
-const persistedPath = path.join(outputDirectory, "scenarios-project.livro.json");
+const persistedPath = path.join(outputDirectory, "scenarios-project.livro");
 let persistedContent;
 
 app.disableHardwareAcceleration();
@@ -14,14 +14,19 @@ app.commandLine.appendSwitch("in-process-gpu");
 app.commandLine.appendSwitch("disable-gpu-sandbox");
 app.setPath("userData", userDataPath);
 
+ipcMain.on("app:get-version", (event) => { event.returnValue = app.getVersion(); });
+
 ipcMain.handle("document:save", async (_event, request) => {
   persistedContent = request.content;
   await fs.writeFile(persistedPath, request.content, "utf8");
-  return { canceled: false, filePath: persistedPath };
+  return { canceled: false, filePath: persistedPath, savedAt: new Date().toISOString() };
 });
 ipcMain.handle("document:open", () => persistedContent
-  ? { canceled: false, filePath: persistedPath, content: persistedContent }
+  ? { canceled: false, filePath: persistedPath, content: persistedContent, format: "livro", warnings: [] }
   : { canceled: true });
+ipcMain.handle("document:autosave", () => ({ skipped: false, savedAt: new Date().toISOString() }));
+ipcMain.handle("recovery:list", () => []);
+ipcMain.handle("backup:recover", () => ({ canceled: true, unavailable: true }));
 ipcMain.handle("document:confirm-unsaved", () => "discard");
 ipcMain.handle("manuscript:confirm-replace", () => true);
 ipcMain.handle("manuscript:import", () => ({ canceled: true }));
@@ -34,6 +39,8 @@ ipcMain.handle("asset:pick-image", () => ({
   },
 }));
 ipcMain.on("document:set-dirty", () => undefined);
+ipcMain.on("document:set-operation-busy", () => undefined);
+ipcMain.on("document:new-session", () => undefined);
 ipcMain.on("document:finish-close", () => undefined);
 
 function assert(condition, message) {
@@ -217,6 +224,19 @@ app.whenReady().then(async () => {
     const charactersAfterTextUndo = storyCharacters();
     const objectsAfterTextUndo = document.querySelectorAll('.positioned-object').length;
 
+    const bodyRunBeforeStyle = document.querySelector('[data-story-from]');
+    const bodySizeBeforeStyle = getComputedStyle(bodyRunBeforeStyle).fontSize;
+    button('Editar estilos').click();
+    await wait(60);
+    setInput(document.querySelector('input[aria-label="Tamanho do estilo"]'), 15);
+    await wait(100);
+    document.querySelector('button[aria-label="Fechar editor de estilos"]').click();
+    await wait(100);
+    const bodySizeAfterStyle = getComputedStyle(document.querySelector('[data-story-from]')).fontSize;
+    key(document.body, 'z', { ctrlKey: true });
+    await wait(120);
+    const bodySizeAfterStyleUndo = getComputedStyle(document.querySelector('[data-story-from]')).fontSize;
+
     const currentRun = document.querySelector('[data-story-from]');
     selection.setBaseAndExtent(currentRun.firstChild, 0, currentRun.firstChild, 0);
     editor.focus();
@@ -267,6 +287,9 @@ app.whenReady().then(async () => {
       charactersAfterTextUndo,
       objectsBeforeTextUndo,
       objectsAfterTextUndo,
+      bodySizeBeforeStyle,
+      bodySizeAfterStyle,
+      bodySizeAfterStyleUndo,
       pagesAfterShrink,
       remainingObjectPages,
       dirtyAfterSave,
@@ -315,6 +338,8 @@ app.whenReady().then(async () => {
   assert(results.charactersAfterTextEdit === results.charactersBeforeTextEdit + 3, "Text insertion failed in the mixed document.");
   assert(results.charactersAfterTextUndo === results.charactersBeforeTextEdit, "Text undo did not remain independent.");
   assert(results.objectsAfterTextUndo === results.objectsBeforeTextUndo, "Text undo changed positioned objects.");
+  assert(results.bodySizeAfterStyle !== results.bodySizeBeforeStyle && results.bodySizeAfterStyleUndo === results.bodySizeBeforeStyle,
+    "Global style changes did not participate in graphic undo.");
   assert(results.pagesAfterShrink >= 5 && results.remainingObjectPages.every((page) => page === 4), "Reflow moved or removed page-fixed objects.");
   assert(!results.dirtyAfterSave, "Save did not clear dirty state.");
   assert(results.reopenedPageCount === 5 && results.reopenedStoryCharacters === 12, "The shortened story did not reopen with its saved pagination.");

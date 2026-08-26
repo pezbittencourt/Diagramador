@@ -156,14 +156,14 @@ página mesmo se o texto diminuir para oito.
 
 O main process abre o seletor nativo e valida a assinatura de PNG, JPEG ou WebP,
 com limite de 50 MB. O preload expõe somente nome, MIME e bytes base64; Node não
-é habilitado no renderer. O asset persiste UUID, nome, MIME, encoding, base64 e
-dimensões em pixels. A relação é
+é habilitado no renderer. O asset em memória mantém UUID, nome, MIME, encoding,
+base64 e dimensões em pixels. No `.livro`, os bytes são binários e o JSON interno
+guarda o path seguro. A relação é
 `PositionedImageObject.assetId → AssetReference.id`.
 
-O JSON fica autocontido e o navegador reutiliza a mesma data URL durante drag e
-resize. Base64 tem custo de tamanho aproximado de 33%. No futuro, os mesmos IDs
-podem virar entradas binárias de um contêiner `.livro` sem alterar objetos ou
-geometria.
+O navegador reutiliza a mesma data URL durante drag e resize. A hidratação base64
+continua sendo detalhe runtime; o arquivo portátil evita seu overhead sem alterar
+objetos ou geometria.
 
 ## Réguas, guias e precisão
 
@@ -178,9 +178,10 @@ com a geometria da página e não dependem de pixels ou margens.
 
 ## Persistência e compatibilidade
 
-O formato é JSON UTF-8 com `schemaVersion: 3`. O codec aceita schemas 1 e 2,
-completa propriedades tipográficas, estilos e configurações de precisão
-ausentes, normaliza objetos legados e devolve schema 3. Conteúdo estruturado,
+O documento lógico usa JSON UTF-8 com `schemaVersion: 3`; no fluxo principal ele
+fica dentro do container `.livro`, e JSON autocontido permanece como legado. O
+codec aceita schemas 1 e 2, completa propriedades tipográficas, estilos e
+configurações de precisão ausentes, normaliza objetos legados e devolve schema 3. Conteúdo estruturado,
 marks, vínculos, overrides, estilos globais, páginas, objetos, guias e assets são
 persistidos; fragmentos e quebras automáticas continuam derivados.
 
@@ -188,6 +189,58 @@ TXT é decodificado como UTF-8, com BOM UTF-16, normaliza quebras e recebe
 `body`. DOCX usa `mammoth.extractRawText` como fallback e
 `mammoth.convertToHtml` para mapear parágrafos, headings, negrito, itálico e
 sublinhado. Formatação desconhecida é ignorada sem abortar a importação.
+
+## Confiabilidade e formato de projeto no 0.9.0
+
+O formato principal é `.livro`, um ZIP autocontido com versão de container 1.
+`document.json` conserva o documento lógico schema 3, mas troca o campo base64
+de cada asset por `encoding: "binary"` e um `storagePath`. `metadata.json` registra
+formato, `containerVersion`, tipo do snapshot, identidade, `schemaVersion`, data e
+contagem de assets. Os bytes ficam em `assets/<sha256-do-id>.<ext>`. A versão do
+container evolui independentemente de `schemaVersion`; o schema permanece 3.
+
+O main process valida quantidade e nomes de entradas, traversal, tamanhos
+compactado/descompactado, limite individual, manifesto, IDs, referências,
+histórias, páginas, objetos, estilos, geometria, MIME e assinatura binária. Uma
+falha em `document.json` rejeita o projeto. Um asset ausente, ilegível ou com
+assinatura divergente gera warning, hidrata `data: ""` e mantém objeto/documento,
+permitindo placeholder e recuperação parcial. Entradas extras são rejeitadas.
+
+JSON legado schemas 1, 2 e 3 continua passando pelo codec do renderer. O main o
+identifica como `legacy-json`; Salvar nunca reutiliza o caminho `.json` e abre o
+seletor `.livro`. O domínio em memória permanece inalterado e ainda usa base64,
+evitando mudanças no preview, no histórico e na rota PDF.
+
+Todo `.livro` é montado e validado antes da gravação. O buffer vai para um
+temporário exclusivo no diretório do destino, recebe `fsync` e só então é
+promovido por rename. Em conflitos de substituição, o destino anterior é movido
+para um rollback exclusivo e restaurado se a promoção falhar. Temporários com
+mais de 24 horas e nome estritamente associado ao destino são limpos na próxima
+gravação; rollbacks não são apagados silenciosamente.
+
+Autosave usa o mesmo container em `app.getPath("userData")/recovery/<hash-id>`.
+O renderer agenda 3 segundos após a última mudança e também tenta a cada 30
+segundos. O snapshot não muda dirty state nem o projeto principal. Na abertura,
+recoveries mais recentes que o arquivo normal são oferecidos com data/hora; só a
+decisão Recuperar os carrega, ainda como alterações não salvas.
+
+Antes de substituir um `.livro` existente e válido, o main copia a versão anterior
+para `userData/backups/<hash-id>` e mantém três arquivos. `Versão anterior` lista
+data/hora, abre a escolha como documento não salvo e exige Salvar como. Logs JSONL
+ficam em `userData/logs/livro-studio.log`; registram categoria, erro e stack
+limitados, nunca o manuscrito integral. Exceções do main, rejections do renderer,
+crash do renderer, falhas de projeto/assets/recovery e PDF passam por esse canal.
+
+O fechamento consulta locks nativos de salvamento e exportação antes do dirty
+state. Novo, Abrir e Fechar preservam Salvar/Não salvar/Cancelar. Um salvamento
+captura a revisão inicial; se houver edição enquanto ele termina, a versão
+iniciada é gravada, mas o estado novo permanece em memória e dirty.
+
+Histórico textual e gráfico continuam separados por contexto. Digitação e delete
+adjacentes são agrupados em janelas curtas; transações de rich text, estilo de
+parágrafo e quebra continuam explícitas. O snapshot gráfico agora inclui estilos
+globais, além de páginas, assets e guias, permitindo undo após fechar o editor de
+estilos sem uma refatoração arriscada de unificação.
 
 ## Exportação PDF editorial no 0.8.0
 
@@ -211,7 +264,7 @@ BookDocument + LayoutSnapshot corrente
   -> diretório exclusivo: CSS e assets gravados uma vez
   -> BrowserWindow dedicada: file: + printToPDF para cada lote
   -> pdf-lib: merge incremental + descarte de cada HTML/buffer parcial
-  -> metadados Livro Studio 0.8.0
+  -> metadados Livro Studio 1.0.0
   -> validação do PDF mesclado e da contagem de páginas
   -> gravação atômica no destino
 ```
@@ -320,7 +373,7 @@ contagem esperada validados. Suas páginas são copiadas imediatamente para o
 `PDFDocument` mesclado; o loop de produção não conserva um array de buffers de todos os lotes.
 Depois do append, o HTML daquele lote é apagado antes de o seguinte ser criado.
 O merge incremental preserva a ordem, define `Title` com o título do livro e fixa
-`Creator` e `Producer` em `Livro Studio 0.8.0`. A contagem total é novamente
+`Creator` e `Producer` em `Livro Studio 1.0.0`. A contagem total é novamente
 conferida antes da única gravação final.
 
 Após o diretório de impressão ser limpo, o buffer final é escrito em um temporário
@@ -336,9 +389,9 @@ folios, PNG/JPEG/WebP, transparência, z-order, geometria fracionária e indepen
 de zoom/view. Também verifica o uso de uma única janela dedicada, sua destruição e
 a ordem física no resultado mesclado. Com Poppler disponível, inspeciona texto
 selecionável, fontes/imagens e compara o raster de preview e PDF.
-Na execução final registrada, `npm.cmd run pdf:benchmark` exportou 100 páginas,
+Na execução final do 0.9.0, `npm.cmd run pdf:benchmark` exportou 100 páginas,
 149.707 caracteres e 40 imagens em cinco lotes de 20. A etapa de exportação levou
-2,73 s e o delta de working set foi +8,5 MiB. O script continua registrando
+3,83 s e o delta de working set foi +11,7 MiB. O script continua registrando
 duração, tamanho, contagem e distribuição dos lotes sem transformar uma medição
 de uma máquina em limite normativo de desempenho.
 Os testes unitários de `npm.cmd run check` cobrem geometria do snapshot, ranges,
@@ -360,16 +413,89 @@ No desenvolvimento, Vite recarrega somente o renderer. Mudanças em
 encerrar e reiniciar Electron para recompilar `dist-electron`; uma janela antiga
 pode não expor a ponte `pdf:export` atual.
 
-## Riscos e próximos endurecimentos
+## Distribuição Windows 1.0.0
 
-- Refinar agrupamento temporal de undo e IME/composição em casos complexos.
-- Evoluir o preflight local para registro/incorporação administrada de fontes e
-  relatório de licenças/embedding, mantendo `document.fonts.ready` como barreira.
-- Adicionar órfãs, viúvas, hifenização e regras editoriais de bloco.
-- Tornar o reflow incremental a partir do primeiro bloco alterado.
-- Virtualizar spreads fora da viewport sem perder a seleção.
-- Trocar base64 por entradas binárias compactadas no contêiner `.livro`.
-- Adicionar objetos ancorados à história, crop e rotação sem alterar objetos de
-  página existentes.
-- Preservar alinhamento direto e page breaks de DOCX quando o conversor não os
-  expõe no HTML.
+### Pipeline e conteúdo do pacote
+
+`electron-builder` 26 produz exclusivamente Windows 10/11 x64. `npm run package`
+compila renderer/main/preload e cria `release/win-unpacked`; `npm run dist` limpa
+esse diretório, recompila, gera o instalador NSIS offline, executa o smoke sobre o
+executável empacotado e calcula SHA-256. O pacote inclui somente `dist/`,
+`dist-electron/`, `package.json`, dependências de produção, dois ícones externos e
+`THIRD_PARTY_NOTICES.txt`. Source maps, fontes, fixtures, scripts, `.env`, `.tmp`,
+`.tools` e fontes TypeScript não entram no ASAR.
+
+O código da aplicação e as dependências JavaScript ficam em `resources/app.asar`.
+Não há módulos nativos `.node`, portanto não existe runtime, compilador ou conteúdo
+que precise de `asarUnpack`. Chromium/Electron e seus DLLs explicam a maior parte
+do tamanho instalado.
+
+### Paths empacotados e dados mutáveis
+
+`resolveRuntimeResourcePaths` centraliza a diferença entre desenvolvimento e
+produção. Dentro do pacote, `__dirname` aponta para
+`resources/app.asar/dist-electron`; renderer e preload são resolvidos dentro do
+ASAR. Ícones copiados como `extraResources` são resolvidos a partir de
+`process.resourcesPath`. Produção nunca procura `src/`, o servidor Vite, cwd ou o
+repositório como fallback; uma falha de recurso é registrada e apresentada como
+erro de startup.
+
+Logs, recovery e backups usam exclusivamente `app.getPath("userData")`:
+
+```text
+%APPDATA%/Livro Studio/
+├── logs/
+├── recovery/
+└── backups/
+```
+
+Arquivos `.livro`, DOCX, imagens e PDF permanecem em caminhos escolhidos pelo
+usuário. Temporários de impressão usam o diretório temporário do Windows. Nenhum
+dado mutável é gravado em `%LOCALAPPDATA%\Programs\Livro Studio`.
+
+### Associação, argumentos e instância única
+
+O instalador assisted NSIS é por usuário, sem elevação, com atalho no Menu Iniciar
+e sem atalho automático no Desktop. `build/installer.nsh` registra em
+`HKCU\Software\Classes` a extensão `.livro`, o ProgID `LivroStudio.Document`, a
+descrição e o comando de abertura com `"%1"`. A desinstalação só remove `.livro`
+quando a extensão ainda pertence a esse ProgID e preserva `userData`.
+
+Argumentos são lidos diretamente do array fornecido pelo Electron; não há split
+manual de command line. Caminhos relativos são resolvidos contra o working
+directory da instância que os forneceu, preservando espaços e Unicode. A primeira
+instância enfileira o projeto até `did-finish-load`. `requestSingleInstanceLock`
+impede concorrência; `second-instance` restaura/foca a janela e encaminha o novo
+caminho. O renderer executa o fluxo já existente Salvar/Não salvar/Cancelar antes
+de invocar a abertura. O main só aceita o caminho se ele tiver sido previamente
+autorizado pela fila criada a partir do argumento do sistema operacional.
+
+### Integração, segurança e assinatura
+
+O executável usa `appId`/AppUserModelID `com.livrostudio.desktop`, product name e
+metadata `Livro Studio 1.0.0`. O menu de produção contém apenas ações de usuário e
+“Sobre”; DevTools e o menu de desenvolvimento só existem em desenvolvimento.
+Sandbox, `contextIsolation`, CSP, Node desativado, preload limitado, validação IPC
+e autorização de paths permanecem iguais ao 0.9.
+
+O build atual é deliberadamente não assinado: nenhum certificado nem variável de
+assinatura foi encontrado. O builder aceita futuramente `WIN_CSC_LINK` e
+`WIN_CSC_KEY_PASSWORD` injetados fora do repositório. Até haver certificado e
+reputação, o SmartScreen pode alertar o usuário. Não há auto-update, telemetria,
+analytics nem chamadas de rede do aplicativo.
+
+Os ícones `build/app.ico` e `build/livro.ico` são placeholders técnicos com sete
+resoluções para validar executável, janela, atalhos, instalador e documento. Eles
+devem ser substituídos, sem mudar a configuração, quando os assets definitivos
+forem fornecidos.
+
+## Limitações editoriais preservadas
+
+- IME/composição e seleção em limites vazios permanecem limitados em casos complexos.
+- Não há registro ou incorporação administrada de fontes; o preflight depende das
+  fontes instaladas e mantém `document.fonts.ready` como barreira.
+- Não há órfãs, viúvas, hifenização nem regras editoriais de bloco.
+- Reflow continua integral e spreads fora da viewport não são virtualizados.
+- Assets são hidratados integralmente em memória ao abrir o container `.livro`.
+- Objetos continuam fixos à página, sem crop, rotação ou âncora na história.
+- Alinhamento direto e page breaks de DOCX dependem do que Mammoth expõe no HTML.

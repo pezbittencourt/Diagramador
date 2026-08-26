@@ -1,9 +1,11 @@
-# Livro Studio 0.8.0
+# Livro Studio 1.0.0
 
-Editor desktop pessoal focado em escrita e diagramação de livros. A versão 0.8.0
+Editor desktop pessoal focado em escrita e diagramação de livros. A versão 1.0.0
 combina a história contínua paginada com imagens fixas às páginas físicas,
 réguas, guias, snapping, visualização de página única e exportação PDF
-editorial a partir da mesma composição usada no preview.
+editorial a partir da mesma composição usada no preview. O projeto principal
+agora é um `.livro` autocontido, com assets binários, gravação atômica,
+autosave, backups rotativos, recuperação pós-crash e logs locais.
 
 ## Aviso sobre o projeto
 
@@ -65,6 +67,27 @@ software assistido por Inteligência Artificial**.
 
 As decisões de domínio estão em [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
+## Instalação
+
+O target oficial é **Windows 10/11 x64**. Execute
+`release/Livro Studio Setup 1.0.0.exe`, avance pelo assistente e abra o aplicativo
+pelo Menu Iniciar. A instalação é offline, por usuário, fica em
+`%LOCALAPPDATA%\Programs\Livro Studio` e não exige Node.js, npm, Git ou o
+repositório. Nenhum atalho é criado automaticamente no Desktop.
+
+O build 1.0.0 é funcional, mas **não assinado**. O Microsoft Defender SmartScreen
+pode exibir um aviso porque o executável ainda não possui certificado/reputação;
+a solução futura correta é assinatura Authenticode, não contornar o mecanismo.
+Depois da instalação, `.livro` aparece como “Documento do Livro Studio” e pode ser
+aberto por duplo clique, inclusive com espaços e Unicode no caminho.
+
+Para remover o programa, use Configurações → Aplicativos → Livro Studio →
+Desinstalar. O desinstalador remove aplicativo, atalho e associação, mas preserva
+documentos do usuário e mantém deliberadamente os pequenos dados de recovery,
+backups e logs em `%APPDATA%\Livro Studio` para não destruir trabalho recuperável.
+Consulte [`WINDOWS_RELEASE_CHECKLIST.md`](./WINDOWS_RELEASE_CHECKLIST.md) antes do
+primeiro uso em uma máquina externa limpa.
+
 ## Funcionalidades atuais
 
 - Edição direta no ambiente paginado com cursor, seleção, clipboard e undo/redo.
@@ -93,6 +116,17 @@ As decisões de domínio estão em [`ARCHITECTURE.md`](./ARCHITECTURE.md).
   oculta e sandboxed, seguida por merge na ordem física.
 - Desduplicação global de PNG/JPEG/WebP: os chunks HTML usam arquivos relativos
   e cada imagem incorporada atravessa o IPC e o diretório temporário uma única vez.
+- Projeto `.livro` em ZIP validado, com `document.json`, `metadata.json` e assets
+  binários independentes; `schemaVersion` lógico permanece 3 e o container tem
+  versionamento próprio.
+- Compatibilidade com JSON legado schemas 1, 2 e 3; o primeiro salvamento pede um
+  destino `.livro` e nunca sobrescreve o JSON sem consentimento.
+- Gravação atômica, autosave separado (debounce de 3 s e intervalo máximo de 30 s),
+  três backups rotativos e recuperação pós-crash com data/hora.
+- Recuperação parcial de asset ausente/corrompido por placeholder, preservando o
+  objeto e o restante do documento.
+- Logs locais de abertura, salvamento, recovery, assets, PDF e erros inesperados,
+  sem registrar o conteúdo integral do manuscrito.
 
 O DOCX preserva parágrafos, headings simples, negrito, itálico e sublinhado
 quando expostos pelo conversor. Tabelas, imagens, notas, cabeçalhos, rodapés e
@@ -128,7 +162,17 @@ npm.cmd run scenarios
 npm.cmd run benchmark
 npm.cmd run pdf:smoke
 npm.cmd run pdf:benchmark
+npm.cmd run project:benchmark
+npm.cmd run package
+npm.cmd run packaged:smoke
+npm.cmd run dist
 ```
+
+`package` gera `release/win-unpacked`. `dist` limpa `release/`, recompila tudo,
+gera o NSIS x64, executa o smoke sobre o executável empacotado e grava o SHA-256
+ao lado do instalador. Os ícones atuais são placeholders técnicos multirresolução;
+`build/app.ico` e `build/livro.ico` devem ser substituídos quando a identidade
+visual definitiva for fornecida.
 
 O smoke salva `.tmp/livro-studio-smoke.png` e um projeto schema 3. Ele exercita
 formatação, estilo global, reflow, imagem incorporada, drag, sangria, duplicação,
@@ -147,11 +191,17 @@ dedicada e que a ordem física permanece intacta no arquivo mesclado.
 Os artefatos ficam em `.tmp/pdf-smoke`. Se Poppler estiver em
 `.tools/poppler-26.02.0-0` ou indicado por `POPPLER_BIN`, o teste também verifica
 texto selecionável, fontes/imagens e faz uma comparação raster independente.
-Na execução final registrada, `pdf:benchmark` exportou 100 páginas, 149.707
-caracteres e 40 imagens válidas em cinco lotes de 20. A exportação levou 2,73 s
-e aumentou o working set em 8,5 MiB. O script rejeita lotes acima de 20 páginas e
+Na execução final do 0.9.0, `pdf:benchmark` exportou 100 páginas, 149.707
+caracteres e 40 imagens válidas em cinco lotes de 20. A exportação levou 3,83 s
+e aumentou o working set em 11,7 MiB. O script rejeita lotes acima de 20 páginas e
 registra duração, tamanho, contagem e distribuição dos lotes; esses valores são
 uma medição do ambiente de teste, não um limite normativo de desempenho.
+
+`project:benchmark` gera 100 páginas, mais de 160 mil caracteres e 40 imagens,
+compara JSON base64 e `.livro`, mede salvamento, abertura, autosave e backup e
+grava `.tmp/project-benchmark/report.json`. Na medição final: 173.293 caracteres,
+7.357.916 bytes no JSON e 5.264.928 no `.livro` (−28,4%), salvar 595 ms, abrir
+139 ms, autosave 580 ms e backup 126 ms. É uma fixture sintética, não um SLA.
 
 Para diagnosticar o smoke sem o atalho do `package.json`, use:
 
@@ -182,8 +232,9 @@ node .\scripts\run-electron.cjs .\scripts\pdf-smoke.cjs
     a linha na página ativa. Ative/desative réguas, guias e snapping separadamente.
 11. Alterne entre `Spread` e `Página única`; use anterior, próxima, `Ir para` e
     `Ajustar página` sem alterar texto, objetos ou numeração.
-12. Salve/abra normalmente; arquivos schema 1 e 2 são migrados na abertura. TXT
-    recebe Corpo de texto e DOCX aproveita formatação básica.
+12. Salve/abra normalmente em `.livro`; projetos JSON schemas 1 e 2 são migrados
+    na abertura e só viram `.livro` depois que o usuário escolhe o destino. TXT recebe Corpo de
+    texto e DOCX aproveita formatação básica.
 13. Clique em `Exportar PDF`, escolha todas as páginas ou informe um intervalo de
     páginas físicas, por exemplo `1-3, 8, 11-13`.
 14. Ative `Incluir sangria` quando o arquivo deva conter a área externa ao trim e
@@ -254,7 +305,7 @@ estritamente crescente, detectando omissões, duplicações e reordenação.
 Cada PDF parcial tem sua contagem conferida e suas páginas são copiadas
 imediatamente para um único `PDFDocument`; no fluxo de produção, não existe mais
 um array com todos os buffers parciais. `pdf-lib` define `Title` com o título do livro e `Creator` e
-`Producer` como `Livro Studio 0.8.0`. O buffer final só chega ao destino depois da
+`Producer` como `Livro Studio 1.0.0`. O buffer final só chega ao destino depois da
 nova conferência de contagem. Ele é escrito em um temporário no mesmo diretório,
 sincronizado e renomeado. Se a substituição direta falhar, o arquivo anterior
 recebe um backup e é restaurado caso a segunda renomeação também falhe.
@@ -272,19 +323,20 @@ trim, nunca em pixels. A imagem não empurra o texto, não produz wrap e permane
 na mesma página física após reflow. Se houver objeto numa página posterior ao
 fim do texto, essa página é preservada.
 
-Cada objeto aponta para um `assetId`. O asset guarda MIME, dimensões originais e
-bytes base64 dentro do JSON. Essa escolha torna o projeto autocontido e simples
-de migrar para um contêiner `.livro`, mas base64 aumenta o tamanho em torno de
-33% e o JSON ainda não é um formato compactado.
+Cada objeto aponta para um `assetId`. Em memória, o renderer conserva MIME,
+dimensões e base64 para manter preview e PDF estáveis. No disco, `.livro` troca o
+base64 por uma entrada binária `assets/<hash>.<ext>` e `document.json` guarda a
+referência. Consulte [`LIVRO_FORMAT.md`](./LIVRO_FORMAT.md).
 
 As guias manuais são globais nesta versão: a mesma posição em mm aparece em
 todas as páginas. Margens, trim, centros, sangrias e guias são candidatos de
 snap; a tolerância é visual, portanto acompanha o zoom.
 
-## Limitações conhecidas do 0.8.0
+## Limitações conhecidas do 1.0.0
 
-- O histórico é local à sessão, tem 200 entradas e agrupa cada operação
-  individualmente; edições globais de estilos não entram no undo.
+- O histórico é local à sessão. Texto tem até 200 entradas, com digitação/delete
+  próximos agrupados; objetos, guias e estilos globais usam até 100 snapshots em
+  um histórico contextual separado.
 - IME e seleção em limites vazios ainda precisam de refinamento multilíngue.
 - Justificação não tem hifenização, microtipografia, órfãs/viúvas ou
   keep-with-next.
@@ -300,13 +352,12 @@ snap; a tolerância é visual, portanto acompanha o zoom.
   parágrafo, crop, rotação, máscaras, filtros, seleção múltipla ou distribuição.
 - Guias manuais são globais; não há guias exclusivas por página nem painel de
   layers completo.
-- Assets base64 ainda podem tornar o JSON do projeto grande; não há
-  compactação/empacotamento final `.livro`. Na rota PDF, porém, imagens repetidas
-  são desduplicadas e o base64 não permanece nos chunks HTML.
+- O renderer ainda hidrata assets como base64 em memória. O ganho de tamanho e
+  manutenção existe no `.livro`, mas a abertura ainda não é incremental.
 - Cada lote ainda é codificado pelo Chromium/Skia, portanto o arquivo não promete
   estabilidade byte a byte entre versões do Electron. Após o merge, entretanto,
   `Title`, `Creator` e `Producer` são controlados; `Producer` é
-  `Livro Studio 0.8.0`.
+  `Livro Studio 1.0.0`.
 - A conversão CSS de mm para pontos pode introduzir arredondamentos pequenos no
   `MediaBox` e nas coordenadas. Os testes comparam dimensões com tolerância numérica,
   não por igualdade textual do PDF.
@@ -316,3 +367,8 @@ snap; a tolerância é visual, portanto acompanha o zoom.
 - A saída ainda não é PDF/X, não oferece CMYK, perfil ICC, marcas de corte ou
   imposição; cores seguem o pipeline RGB do Chromium.
 - EPUB ainda não foi implementado.
+- O instalador não possui assinatura Authenticode e pode receber aviso do
+  SmartScreen. Os ícones incluídos são placeholders técnicos, não identidade final.
+- O repositório não declara uma licença pública para o código do Livro Studio.
+  Licenças e avisos das dependências distribuídas estão em
+  [`THIRD_PARTY_NOTICES.txt`](./THIRD_PARTY_NOTICES.txt).

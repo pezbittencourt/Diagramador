@@ -46,8 +46,17 @@ import { serializePdfExportSurface } from "./pdf/exportMarkup";
 import { parsePhysicalPageRange } from "./pdf/pageRange";
 
 interface Notice {
-  kind: "success" | "error";
+  kind: "success" | "warning" | "error";
   text: string;
+}
+
+type SaveStatus = "saved" | "dirty" | "saving" | "autosaved" | "error";
+
+interface RecoveryCandidate {
+  documentId: string;
+  title: string;
+  savedAt: string;
+  sourcePath?: string;
 }
 
 interface ObjectSelection {
@@ -59,6 +68,7 @@ interface GraphicSnapshot {
   pages: BookPage[];
   assets: BookDocument["assets"];
   guides: DocumentGuide[];
+  styles: ParagraphStyle[];
 }
 
 interface ObjectClipboard {
@@ -87,17 +97,29 @@ function readImageDimensions(dataUrl: string): Promise<{ width: number; height: 
 function suggestedFileName(title: string): string {
   const safeTitle = title.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9 _-]/g, "").trim().replace(/\s+/g, "-").toLowerCase();
-  return `${safeTitle || "livro-sem-titulo"}.livro.json`;
+  return `${safeTitle || "livro-sem-titulo"}.livro`;
 }
 
 function suggestedPdfFileName(title: string): string {
-  return suggestedFileName(title).replace(/\.livro\.json$/u, ".pdf");
+  return suggestedFileName(title).replace(/\.livro$/u, ".pdf");
+}
+
+function userFacingError(error: unknown, fallback: string): string {
+  if (!(error instanceof Error)) return fallback;
+  const message = error.message
+    .replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/u, "")
+    .replace(/^Error:\s*/u, "")
+    .trim();
+  if (!message || /\b(TypeError|ReferenceError|ENOENT|Unhandled Promise)\b/u.test(message)) return fallback;
+  return message;
 }
 
 export default function App() {
   const [book, setBook] = useState(createDefaultDocument);
   const [filePath, setFilePath] = useState<string>();
   const [dirty, setDirty] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
+  const [normalSavedAt, setNormalSavedAt] = useState<string>();
   const [zoom, setZoom] = useState(72);
   const [notice, setNotice] = useState<Notice>();
   const [pageBreakRequest, setPageBreakRequest] = useState(0);
@@ -110,9 +132,14 @@ export default function App() {
   const [pdfProgress, setPdfProgress] = useState<string>();
   const [pdfError, setPdfError] = useState<string>();
   const [pdfExportJob, setPdfExportJob] = useState<PdfExportJob>();
+  const [recoveries, setRecoveries] = useState<RecoveryCandidate[]>([]);
   const bookRef = useRef(book);
   const dirtyRef = useRef(dirty);
   const pdfExportInProgressRef = useRef(false);
+  const autosaveInProgressRef = useRef(false);
+  const saveInProgressRef = useRef(false);
+  const changeRevisionRef = useRef(0);
+  const severeErrorHandledRef = useRef(false);
   const graphicHistoryRef = useRef<{ past: GraphicSnapshot[]; future: GraphicSnapshot[] }>({
     past: [],
     future: [],
@@ -134,9 +161,11 @@ export default function App() {
     () => synchronizePhysicalPages(book.pages, layout.pages.length),
     [book.pages, layout.pages.length],
   );
+  const physicalPagesRef = useRef(physicalPages);
 
   useEffect(() => { bookRef.current = book; }, [book]);
   useEffect(() => { dirtyRef.current = dirty; }, [dirty]);
+  useEffect(() => { physicalPagesRef.current = physicalPages; }, [physicalPages]);
 
   useEffect(() => {
     let active = true;
@@ -161,12 +190,14 @@ export default function App() {
   }, [physicalPages]);
 
   const updateBook = useCallback((updater: (current: BookDocument) => BookDocument) => {
+    changeRevisionRef.current += 1;
     setBook((current) => {
       const next = { ...updater(current), updatedAt: new Date().toISOString() };
       bookRef.current = next;
       return next;
     });
     setDirty(true);
+    setSaveStatus("dirty");
   }, []);
 
   const updatePageSetup = (pageSetup: PageSetup) => {
@@ -197,6 +228,7 @@ export default function App() {
     pages: bookRef.current.pages,
     assets: bookRef.current.assets,
     guides: bookRef.current.guides,
+    styles: bookRef.current.styles,
   }), []);
 
   const beginGraphicMutation = useCallback(() => {
@@ -207,18 +239,21 @@ export default function App() {
   }, [graphicSnapshot]);
 
   const restoreGraphicSnapshot = useCallback((snapshot: GraphicSnapshot) => {
+    changeRevisionRef.current += 1;
     setBook((current) => {
       const next = {
         ...current,
         pages: snapshot.pages,
         assets: snapshot.assets,
         guides: snapshot.guides,
+        styles: snapshot.styles,
         updatedAt: new Date().toISOString(),
       };
       bookRef.current = next;
       return next;
     });
     setDirty(true);
+    setSaveStatus("dirty");
   }, []);
 
   const undoGraphicMutation = useCallback(() => {
@@ -391,29 +426,51 @@ export default function App() {
   }, [beginGraphicMutation, selectedObject, updateBook]);
 
   const saveDocument = useCallback(async (saveAs = false): Promise<boolean> => {
-    if (!nativeApi) return false;
+    if (!nativeApi || saveInProgressRef.current) return false;
+    saveInProgressRef.current = true;
+    setSaveStatus("saving");
+    const revisionAtStart = changeRevisionRef.current;
     try {
+      const currentBook = bookRef.current;
       const savedDocument = {
-        ...book,
-        pages: physicalPages,
+        ...currentBook,
+        pages: physicalPagesRef.current,
         updatedAt: new Date().toISOString(),
       };
       const result = await nativeApi.saveDocument({
         content: serializeDocument(savedDocument),
         filePath: saveAs ? undefined : filePath,
-        suggestedName: suggestedFileName(book.title),
+        suggestedName: suggestedFileName(currentBook.title),
       });
-      if (result.canceled) return false;
-      setBook(savedDocument);
+      if (result.canceled) {
+        setSaveStatus(dirtyRef.current ? "dirty" : "saved");
+        return false;
+      }
       setFilePath(result.filePath);
-      setDirty(false);
-      setNotice({ kind: "success", text: "Projeto salvo com sucesso." });
-      return true;
+      setNormalSavedAt(result.savedAt);
+      const savedCurrentRevision = changeRevisionRef.current === revisionAtStart;
+      if (savedCurrentRevision) {
+        setBook(savedDocument);
+        bookRef.current = savedDocument;
+        setDirty(false);
+        setSaveStatus("saved");
+        setNotice(result.warnings?.length
+          ? { kind: "warning", text: result.warnings.join(" ") }
+          : { kind: "success", text: "Projeto salvo com sucesso." });
+      } else {
+        setDirty(true);
+        setSaveStatus("dirty");
+        setNotice({ kind: "warning", text: "A versão iniciada foi salva; alterações feitas durante o salvamento continuam não salvas." });
+      }
+      return savedCurrentRevision;
     } catch (error) {
-      setNotice({ kind: "error", text: error instanceof Error ? error.message : "Não foi possível salvar o projeto." });
+      setSaveStatus("error");
+      setNotice({ kind: "error", text: userFacingError(error, "Não foi possível salvar o projeto.") });
       return false;
+    } finally {
+      saveInProgressRef.current = false;
     }
-  }, [book, filePath, nativeApi, physicalPages]);
+  }, [filePath, nativeApi]);
 
   const confirmDiscard = useCallback(async (action: string): Promise<boolean> => {
     if (!dirty || !nativeApi) return true;
@@ -424,29 +481,172 @@ export default function App() {
 
   const newDocument = useCallback(async () => {
     if (!(await confirmDiscard("criar um novo documento"))) return;
+    nativeApi?.beginNewDocument();
     setBook(createDefaultDocument());
     setFilePath(undefined);
     setDirty(false);
+    setSaveStatus("saved");
+    setNormalSavedAt(undefined);
     setActivePageIndex(0);
     setObjectSelection(undefined);
     graphicHistoryRef.current = { past: [], future: [] };
+    changeRevisionRef.current = 0;
     setNotice({ kind: "success", text: "Novo projeto criado." });
-  }, [confirmDiscard]);
+  }, [confirmDiscard, nativeApi]);
 
   const openDocument = useCallback(async () => {
     if (!nativeApi || !(await confirmDiscard("abrir outro documento"))) return;
     try {
       const result = await nativeApi.openDocument();
       if (result.canceled) return;
-      setBook(parseDocument(result.content));
+      const opened = parseDocument(result.content);
+      setBook(opened);
       setFilePath(result.filePath);
+      setNormalSavedAt(new Date().toISOString());
       setDirty(false);
+      setSaveStatus("saved");
       setActivePageIndex(0);
       setObjectSelection(undefined);
       graphicHistoryRef.current = { past: [], future: [] };
-      setNotice({ kind: "success", text: "Projeto aberto com sucesso." });
+      changeRevisionRef.current = 0;
+      setNotice(result.warnings.length
+        ? { kind: "warning", text: `Projeto aberto com ${result.warnings.length} aviso(s): ${result.warnings.join(" ")}` }
+        : { kind: "success", text: result.format === "legacy-json"
+          ? "Projeto legado aberto. O próximo salvamento será feito como .livro."
+          : "Projeto aberto com sucesso." });
     } catch (error) {
-      setNotice({ kind: "error", text: error instanceof Error ? error.message : "Não foi possível abrir o projeto." });
+      nativeApi.reportError({
+        category: "project-open-renderer",
+        message: error instanceof Error ? error.message : "Falha desconhecida ao abrir",
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      setNotice({ kind: "error", text: userFacingError(error, "Não foi possível abrir o projeto porque o arquivo está inválido ou corrompido.") });
+    }
+  }, [confirmDiscard, nativeApi]);
+
+  const openExternalDocument = useCallback(async (externalPath: string) => {
+    if (!nativeApi || !(await confirmDiscard("abrir o documento solicitado pelo Windows"))) return;
+    try {
+      const result = await nativeApi.openExternalDocument(externalPath);
+      const opened = parseDocument(result.content);
+      setBook(opened);
+      setFilePath(result.filePath);
+      setNormalSavedAt(new Date().toISOString());
+      setDirty(false);
+      setSaveStatus("saved");
+      setActivePageIndex(0);
+      setObjectSelection(undefined);
+      graphicHistoryRef.current = { past: [], future: [] };
+      changeRevisionRef.current = 0;
+      setNotice(result.warnings.length
+        ? { kind: "warning", text: `Projeto aberto pelo Windows com ${result.warnings.length} aviso(s): ${result.warnings.join(" ")}` }
+        : { kind: "success", text: "Projeto aberto pelo Windows com sucesso." });
+    } catch (error) {
+      nativeApi.reportError({
+        category: "project-open-associated-renderer",
+        message: error instanceof Error ? error.message : "Falha desconhecida ao abrir associação",
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      setNotice({ kind: "error", text: userFacingError(error, "Não foi possível abrir o projeto solicitado pelo Windows.") });
+    }
+  }, [confirmDiscard, nativeApi]);
+
+  const performAutosave = useCallback(async () => {
+    if (!nativeApi || !dirtyRef.current || autosaveInProgressRef.current) return;
+    autosaveInProgressRef.current = true;
+    try {
+      const current = bookRef.current;
+      const result = await nativeApi.autosaveDocument({
+        content: serializeDocument({ ...current, pages: physicalPagesRef.current }),
+        filePath,
+        normalSavedAt,
+      });
+      if (!result.skipped && dirtyRef.current) setSaveStatus("autosaved");
+    } catch (error) {
+      setSaveStatus("error");
+      nativeApi.reportError({
+        category: "autosave-renderer",
+        message: userFacingError(error, "Falha no autosave"),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+    } finally {
+      autosaveInProgressRef.current = false;
+    }
+  }, [filePath, nativeApi, normalSavedAt]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const timeout = window.setTimeout(() => { void performAutosave(); }, 3000);
+    return () => window.clearTimeout(timeout);
+  }, [book, dirty, performAutosave]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => { void performAutosave(); }, 30000);
+    return () => window.clearInterval(interval);
+  }, [performAutosave]);
+
+  useEffect(() => {
+    if (!nativeApi) return;
+    let active = true;
+    void nativeApi.listRecoveries().then((items) => { if (active) setRecoveries(items); })
+      .catch((error) => nativeApi.reportError({
+        category: "recovery-list",
+        message: userFacingError(error, "Falha ao procurar versões de recuperação"),
+        stack: error instanceof Error ? error.stack : undefined,
+      }));
+    return () => { active = false; };
+  }, [nativeApi]);
+
+  const recoverAutosave = useCallback(async (candidate: RecoveryCandidate) => {
+    if (!nativeApi || !(await confirmDiscard("carregar a versão de recuperação"))) return;
+    try {
+      const recovered = await nativeApi.loadRecovery(candidate.documentId);
+      setBook(parseDocument(recovered.content));
+      setFilePath(candidate.sourcePath);
+      setDirty(true);
+      setSaveStatus("dirty");
+      setNormalSavedAt(undefined);
+      setActivePageIndex(0);
+      setObjectSelection(undefined);
+      graphicHistoryRef.current = { past: [], future: [] };
+      changeRevisionRef.current = 1;
+      await nativeApi.discardRecovery(candidate.documentId);
+      setRecoveries((current) => current.filter((item) => item.documentId !== candidate.documentId));
+      setNotice({ kind: recovered.warnings.length ? "warning" : "success", text: recovered.warnings.length
+        ? `Versão recuperada com ${recovered.warnings.length} aviso(s): ${recovered.warnings.join(" ")}`
+        : "Versão de recuperação carregada. Salve para confirmar as alterações." });
+    } catch (error) {
+      setNotice({ kind: "error", text: userFacingError(error, "Não foi possível carregar a versão de recuperação.") });
+    }
+  }, [confirmDiscard, nativeApi]);
+
+  const ignoreAutosave = useCallback(async (candidate: RecoveryCandidate) => {
+    if (!nativeApi) return;
+    try { await nativeApi.discardRecovery(candidate.documentId); }
+    catch (error) { nativeApi.reportError({ category: "recovery-discard", message: String(error) }); }
+    setRecoveries((current) => current.filter((item) => item.documentId !== candidate.documentId));
+  }, [nativeApi]);
+
+  const recoverPreviousVersion = useCallback(async () => {
+    if (!nativeApi || !(await confirmDiscard("recuperar uma versão anterior"))) return;
+    try {
+      const result = await nativeApi.recoverBackup(bookRef.current.id);
+      if (result.canceled) {
+        if (result.unavailable) setNotice({ kind: "warning", text: "Ainda não há backups anteriores para este projeto." });
+        return;
+      }
+      setBook(parseDocument(result.content));
+      setFilePath(undefined);
+      setNormalSavedAt(undefined);
+      setDirty(true);
+      setSaveStatus("dirty");
+      setActivePageIndex(0);
+      setObjectSelection(undefined);
+      graphicHistoryRef.current = { past: [], future: [] };
+      changeRevisionRef.current = 1;
+      setNotice({ kind: result.warnings.length ? "warning" : "success", text: `Backup de ${new Date(result.backupSavedAt).toLocaleString("pt-BR")} carregado. Use Salvar como para preservá-lo.` });
+    } catch (error) {
+      setNotice({ kind: "error", text: userFacingError(error, "Não foi possível recuperar o backup.") });
     }
   }, [confirmDiscard, nativeApi]);
 
@@ -637,7 +837,12 @@ export default function App() {
         text: `PDF exportado: ${result.filePath.split(/[\\/]/).at(-1)} (${result.pageCount} página(s)).`,
       });
     } catch (error) {
-      setPdfError(error instanceof Error ? error.message : "Não foi possível exportar o PDF.");
+      setPdfError(userFacingError(error, "Não foi possível exportar o PDF."));
+      nativeApi?.reportError({
+        category: "pdf-export-renderer",
+        message: error instanceof Error ? error.message : "Falha desconhecida no PDF",
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       setPdfProgress(undefined);
     } finally {
       if (exportMounted) setPdfExportJob(undefined);
@@ -652,6 +857,11 @@ export default function App() {
   }, [book.title, dirty, nativeApi]);
 
   useEffect(() => {
+    nativeApi?.setOperationBusy(pdfBusy);
+    return () => nativeApi?.setOperationBusy(false);
+  }, [nativeApi, pdfBusy]);
+
+  useEffect(() => {
     if (!notice) return;
     const timeout = window.setTimeout(() => setNotice(undefined), 4000);
     return () => window.clearTimeout(timeout);
@@ -659,17 +869,47 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "s") return;
+      if (!(event.ctrlKey || event.metaKey)) return;
+      const key = event.key.toLowerCase();
+      if (!(["s", "n", "o"] as string[]).includes(key)) return;
       event.preventDefault();
-      void saveDocument(event.shiftKey);
+      if ((saveInProgressRef.current || pdfExportInProgressRef.current) && key !== "s") return;
+      if (key === "s") void saveDocument(event.shiftKey);
+      else if (key === "n") void newDocument();
+      else void openDocument();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [saveDocument]);
+  }, [newDocument, openDocument, saveDocument]);
+
+  useEffect(() => {
+    if (!nativeApi) return;
+    const preserveAndReport = (category: string, error: unknown) => {
+      const actual = error instanceof Error ? error : new Error(String(error));
+      nativeApi.reportError({ category, message: actual.message, stack: actual.stack });
+      if (!severeErrorHandledRef.current) {
+        severeErrorHandledRef.current = true;
+        void performAutosave().finally(() => { severeErrorHandledRef.current = false; });
+      }
+      setNotice({ kind: "error", text: "Ocorreu um erro inesperado. O Livro Studio tentou preservar uma versão de recuperação." });
+    };
+    const onError = (event: ErrorEvent) => preserveAndReport("renderer-error", event.error ?? event.message);
+    const onRejection = (event: PromiseRejectionEvent) => preserveAndReport("renderer-unhandled-rejection", event.reason);
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onRejection);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onRejection);
+    };
+  }, [nativeApi, performAutosave]);
 
   useEffect(() => nativeApi?.onSaveBeforeClose(() => {
     void saveDocument().then((saved) => nativeApi.finishClose(saved));
   }), [nativeApi, saveDocument]);
+
+  useEffect(() => nativeApi?.onOpenExternalDocument((externalPath) => {
+    void openExternalDocument(externalPath);
+  }), [nativeApi, openExternalDocument]);
 
   const valid = isValidPageSetup(book.pageSetup);
   const presetName = book.pageSetup.preset === "custom" ? "Personalizado" : book.pageSetup.preset;
@@ -681,22 +921,26 @@ export default function App() {
       <header className="app-bar">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true"><i /><i /></span>
-          <span><strong>Livro Studio</strong><small>PDF editorial 0.8</small></span>
+          <span><strong>Livro Studio</strong><small>Edição Windows 1.0</small></span>
         </div>
         <div className="document-name" title={filePath ?? "Documento ainda não salvo"}>
-          <span className={`saved-indicator ${dirty ? "dirty" : ""}`} />
-          {book.title}{dirty && <span className="dirty-mark" aria-label="Alterações não salvas">●</span>}
+          <span className={`saved-indicator status-${saveStatus} ${dirty ? "dirty" : ""}`} />
+          <span>{book.title}{dirty && <span className="dirty-mark" aria-label="Alterações não salvas">●</span>}</span>
+          <small className={`save-status save-status-${saveStatus}`}>
+            {{ saved: "Salvo", dirty: "Alterações não salvas", saving: "Salvando…", autosaved: "Autosave atualizado", error: "Falha na proteção" }[saveStatus]}
+          </small>
         </div>
         <div className="app-actions">
-          <button type="button" onClick={() => void newDocument()}>Novo</button>
-          <button type="button" disabled={!nativeApi} onClick={() => void openDocument()}>Abrir projeto</button>
-          <button type="button" disabled={!nativeApi} onClick={() => void importManuscript()}>Importar manuscrito</button>
-          <button type="button" disabled={!nativeApi} onClick={() => void saveDocument()}>Salvar</button>
-          <button className="save-as-button" type="button" disabled={!nativeApi} onClick={() => void saveDocument(true)}>Salvar como</button>
+          <button type="button" disabled={pdfBusy || saveStatus === "saving"} onClick={() => void newDocument()}>Novo</button>
+          <button type="button" disabled={!nativeApi || pdfBusy || saveStatus === "saving"} onClick={() => void openDocument()}>Abrir projeto</button>
+          <button type="button" disabled={!nativeApi || pdfBusy || saveStatus === "saving"} onClick={() => void importManuscript()}>Importar manuscrito</button>
+          <button type="button" disabled={!nativeApi || pdfBusy || saveStatus === "saving"} onClick={() => void saveDocument()}>Salvar</button>
+          <button className="save-as-button" type="button" disabled={!nativeApi || pdfBusy || saveStatus === "saving"} onClick={() => void saveDocument(true)}>Salvar como</button>
+          <button type="button" disabled={!nativeApi || pdfBusy || saveStatus === "saving"} onClick={() => void recoverPreviousVersion()}>Versão anterior</button>
           <button
             className="export-pdf-button"
             type="button"
-            disabled={!canExportPdf || !valid}
+            disabled={!canExportPdf || !valid || pdfBusy || saveStatus === "saving"}
             title={!canExportPdf
               ? "Reinicie o Livro Studio após recompilar para ativar a ponte nativa de PDF."
               : "Exportar o documento atual como PDF"}
@@ -758,7 +1002,10 @@ export default function App() {
           pageBreakRequest={pageBreakRequest}
           focusPageRequest={workspaceFocusRequest}
           onStoryChange={updateStory}
-          onStylesChange={updateStyles}
+          onStylesChange={(styles) => {
+            beginGraphicMutation();
+            updateStyles(styles);
+          }}
           onInsertPageBreak={() => setPageBreakRequest((current) => current + 1)}
           onZoomChange={setZoom}
           onViewModeChange={(viewMode) => updateBook((current) => ({ ...current, viewSettings: { ...current.viewSettings, viewMode } }))}
@@ -792,10 +1039,25 @@ export default function App() {
           onExport={(options) => void exportPdf(options)}
         />
       )}
+      {recoveries[0] && (
+        <div className="recovery-dialog-backdrop" role="presentation">
+          <section className="recovery-dialog" role="dialog" aria-modal="true" aria-labelledby="recovery-title">
+            <span className="eyebrow">Recuperação automática</span>
+            <h2 id="recovery-title">Foi encontrada uma versão mais recente</h2>
+            <p><strong>{recoveries[0].title}</strong></p>
+            <p>Autosave de {new Date(recoveries[0].savedAt).toLocaleString("pt-BR")}.</p>
+            <p>O projeto principal não será sobrescrito sem uma ação explícita.</p>
+            <div className="recovery-actions">
+              <button type="button" onClick={() => void ignoreAutosave(recoveries[0])}>Ignorar</button>
+              <button className="primary" type="button" onClick={() => void recoverAutosave(recoveries[0])}>Recuperar</button>
+            </div>
+          </section>
+        </div>
+      )}
       <footer className="status-bar">
         <span>{physicalPages.length} {physicalPages.length === 1 ? "página" : "páginas"} · reflow {layout.composeTimeMs.toFixed(1)} ms</span>
         <span>{presetName} · margens {book.pageSetup.mirroredMargins ? "espelhadas" : "fixas"}</span>
-        <span>{fileName ?? "Não salvo"} · {nativeApi ? `Desktop · v${nativeApi.version}` : "Preview web"}</span>
+        <span>{fileName ?? "Não salvo"} · {{ saved: "Salvo", dirty: "Não salvo", saving: "Salvando…", autosaved: "Recovery atualizado", error: "Proteção com falha" }[saveStatus]} · {nativeApi ? `Desktop · v${nativeApi.version}` : "Preview web"}</span>
       </footer>
       </div>
       {pdfExportJob && (

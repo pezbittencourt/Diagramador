@@ -42,9 +42,15 @@ button:not(:disabled) { cursor: pointer; }
 .brand-mark i { display: block; width: 11px; height: 23px; background: #d5ad63; border-radius: 1px 4px 4px 1px; }
 .brand-mark i:last-child { border-radius: 4px 1px 1px 4px; }
 
-.document-name { justify-self: center; color: #c4cbc7; font-size: 13px; display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
+.document-name { justify-self: center; color: #c4cbc7; font-size: 13px; display: grid; grid-template-columns: auto minmax(0, auto); align-items: center; column-gap: 8px; min-width: 0; max-width: 100%; }
+.document-name > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.save-status { grid-column: 2; color: #87968f; font-size: 9px; line-height: 1; }
+.save-status-saving { color: #d5ad63; }
+.save-status-error { color: #e49389; }
 .saved-indicator { width: 6px; height: 6px; border-radius: 50%; background: #6db78e; box-shadow: 0 0 0 3px #6db78e20; }
-.saved-indicator.dirty { background: #d5ad63; box-shadow: 0 0 0 3px #d5ad6330; }
+.saved-indicator.dirty, .saved-indicator.status-dirty, .saved-indicator.status-saving { background: #d5ad63; box-shadow: 0 0 0 3px #d5ad6330; }
+.saved-indicator.status-autosaved { background: #79a89d; box-shadow: 0 0 0 3px #79a89d30; }
+.saved-indicator.status-error { background: #d9786e; box-shadow: 0 0 0 3px #d9786e30; }
 .dirty-mark { color: #d5ad63; font-size: 9px; }
 .app-actions { justify-self: end; display: flex; gap: 6px; }
 .app-actions button, .view-button, .zoom-control button {
@@ -383,7 +389,15 @@ button:not(:disabled) { cursor: pointer; }
 .validation-banner { position: fixed; left: 312px; right: 20px; bottom: 38px; z-index: 10; padding: 10px 14px; color: #713430; background: #fff0ed; border: 1px solid #d99088; border-radius: 6px; box-shadow: 0 4px 20px #53262225; font-size: 12px; }
 .operation-notice { position: fixed; right: 20px; bottom: 38px; z-index: 11; max-width: 360px; padding: 10px 14px; border-radius: 6px; box-shadow: 0 4px 20px #25302c25; font-size: 12px; }
 .notice-success { color: #1f5236; background: #edf8f1; border: 1px solid #8ccda6; }
+.notice-warning { color: #694c22; background: #fff8e8; border: 1px solid #d9ba7b; }
 .notice-error { color: #713430; background: #fff0ed; border: 1px solid #d99088; }
+.recovery-dialog-backdrop { position: fixed; inset: 54px 0 26px; z-index: 70; display: grid; place-items: center; padding: 24px; background: #17201da6; backdrop-filter: blur(3px); }
+.recovery-dialog { width: min(470px, calc(100vw - 48px)); padding: 22px; border: 1px solid #aeb5b0; border-radius: 9px; background: #fbfaf6; box-shadow: 0 24px 70px #17201d66; color: #3b4540; }
+.recovery-dialog h2 { margin: 5px 0 16px; font: 500 22px Georgia, serif; }
+.recovery-dialog p { margin: 7px 0; color: #66706b; font-size: 12px; line-height: 1.5; }
+.recovery-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 20px; }
+.recovery-actions button { padding: 8px 13px; border: 1px solid #b8bfba; border-radius: 5px; background: #f0f1ed; color: #45504a; }
+.recovery-actions button.primary { border-color: #315d4b; background: #315d4b; color: #fff; }
 .status-bar { display: flex; align-items: center; justify-content: space-between; padding: 0 12px; color: #aeb9b3; background: #202a26; border-top: 1px solid #39433f; font-size: 10px; }
 
 @media (max-width: 1120px) {

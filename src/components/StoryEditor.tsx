@@ -112,6 +112,7 @@ export function StoryEditor({
   const lastEmittedRef = useRef<RichTextDocument | undefined>(undefined);
   const lastBreakRequestRef = useRef(pageBreakRequest);
   const lastCommandRef = useRef(0);
+  const lastHistoryGroupRef = useRef<{ kind: "typing" | "delete"; at: number } | undefined>(undefined);
 
   const refreshFormatting = useCallback(() => {
     onSelectionFormattingChange(selectionFormatting(
@@ -126,6 +127,7 @@ export function StoryEditor({
     if (lastEmittedRef.current === content) return;
     undoStackRef.current = [];
     redoStackRef.current = [];
+    lastHistoryGroupRef.current = undefined;
     selectionRef.current = { anchor: 0, head: 0 };
     typingMarksRef.current = marksAtOffset(content, 0);
   }, [content]);
@@ -142,6 +144,7 @@ export function StoryEditor({
     if (changed && selection.anchor === selection.head) {
       typingMarksRef.current = marksAtOffset(content, selection.head);
     }
+    if (changed) lastHistoryGroupRef.current = undefined;
     refreshFormatting();
   }, [content, refreshFormatting]);
 
@@ -167,11 +170,19 @@ export function StoryEditor({
     root.focus({ preventScroll: true });
   }, [content, children, onRevealOffset]);
 
-  const emit = useCallback((result: StoryEditResult, addToHistory = true) => {
-    if (addToHistory) {
+  const emit = useCallback((
+    result: StoryEditResult,
+    historyGroup: "typing" | "delete" | "transaction" = "transaction",
+  ) => {
+    const now = Date.now();
+    const previousGroup = lastHistoryGroupRef.current;
+    const coalesced = historyGroup !== "transaction" && previousGroup?.kind === historyGroup &&
+      now - previousGroup.at < 800 && selectionRef.current.anchor === selectionRef.current.head;
+    if (!coalesced) {
       undoStackRef.current.push({ content, selection: selectionRef.current });
       if (undoStackRef.current.length > 200) undoStackRef.current.shift();
     }
+    lastHistoryGroupRef.current = historyGroup === "transaction" ? undefined : { kind: historyGroup, at: now };
     redoStackRef.current = [];
     selectionRef.current = result.selection;
     pendingSelectionRef.current = result.selection;
@@ -187,6 +198,7 @@ export function StoryEditor({
     pendingSelectionRef.current = previous.selection;
     typingMarksRef.current = marksAtOffset(previous.content, previous.selection.head);
     lastEmittedRef.current = previous.content;
+    lastHistoryGroupRef.current = undefined;
     onChange(previous.content);
   }, [content, onChange]);
 
@@ -198,12 +210,13 @@ export function StoryEditor({
     pendingSelectionRef.current = next.selection;
     typingMarksRef.current = marksAtOffset(next.content, next.selection.head);
     lastEmittedRef.current = next.content;
+    lastHistoryGroupRef.current = undefined;
     onChange(next.content);
   }, [content, onChange]);
 
-  const insert = useCallback((text: string) => {
+  const insert = useCallback((text: string, historyGroup: "typing" | "transaction" = "typing") => {
     rememberSelection();
-    emit(replaceStoryRange(content, selectionRef.current, text, typingMarksRef.current));
+    emit(replaceStoryRange(content, selectionRef.current, text, typingMarksRef.current), historyGroup);
   }, [content, emit, rememberSelection]);
 
   const formatInline = useCallback((
@@ -225,7 +238,7 @@ export function StoryEditor({
   useEffect(() => {
     if (pageBreakRequest === lastBreakRequestRef.current) return;
     lastBreakRequestRef.current = pageBreakRequest;
-    insert(PAGE_BREAK_CHARACTER);
+    insert(PAGE_BREAK_CHARACTER, "transaction");
   }, [insert, pageBreakRequest]);
 
   useEffect(() => {
@@ -251,18 +264,18 @@ export function StoryEditor({
     const input = event.nativeEvent as InputEvent;
     if (input.inputType === "insertText" || input.inputType === "insertCompositionText") {
       event.preventDefault();
-      insert(input.data ?? "");
+      insert(input.data ?? "", "typing");
     } else if (input.inputType === "insertParagraph" || input.inputType === "insertLineBreak") {
       event.preventDefault();
-      insert("\n");
+      insert("\n", "transaction");
     } else if (input.inputType === "deleteContentBackward") {
       event.preventDefault();
       rememberSelection();
-      emit(deleteFromStory(content, selectionRef.current, "backward"));
+      emit(deleteFromStory(content, selectionRef.current, "backward"), "delete");
     } else if (input.inputType === "deleteContentForward" || input.inputType === "deleteByCut") {
       event.preventDefault();
       rememberSelection();
-      emit(deleteFromStory(content, selectionRef.current, "forward"));
+      emit(deleteFromStory(content, selectionRef.current, "forward"), "delete");
     } else if (input.inputType === "historyUndo") {
       event.preventDefault();
       undo();
@@ -292,7 +305,7 @@ export function StoryEditor({
 
   const onPaste = (event: ReactClipboardEvent<HTMLDivElement>) => {
     event.preventDefault();
-    insert(event.clipboardData.getData("text/plain"));
+    insert(event.clipboardData.getData("text/plain"), "transaction");
   };
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -300,7 +313,7 @@ export function StoryEditor({
     const key = event.key.toLowerCase();
     if (modifier && event.key === "Enter") {
       event.preventDefault();
-      insert(PAGE_BREAK_CHARACTER);
+      insert(PAGE_BREAK_CHARACTER, "transaction");
     } else if (modifier && key === "a") {
       event.preventDefault();
       const length = storyToPlainText(content).length;

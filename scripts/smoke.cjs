@@ -6,23 +6,35 @@ const root = path.resolve(__dirname, "..");
 const outputDirectory = path.join(root, ".tmp");
 const screenshotPath = path.join(outputDirectory, "livro-studio-smoke.png");
 const userDataPath = path.join(outputDirectory, "electron-smoke-user-data");
-const persistedPath = path.join(outputDirectory, "smoke-project.livro.json");
+const persistedPath = path.join(outputDirectory, "smoke-project.livro");
 let persistedContent;
+let externalContent;
+let confirmDecision = "discard";
+let externalOpenCalls = 0;
 
 app.disableHardwareAcceleration();
 app.commandLine.appendSwitch("in-process-gpu");
 app.commandLine.appendSwitch("disable-gpu-sandbox");
 app.setPath("userData", userDataPath);
 
+ipcMain.on("app:get-version", (event) => { event.returnValue = app.getVersion(); });
+
 ipcMain.handle("document:save", async (_event, request) => {
   persistedContent = request.content;
   await fs.writeFile(persistedPath, request.content, "utf8");
-  return { canceled: false, filePath: persistedPath };
+  return { canceled: false, filePath: persistedPath, savedAt: new Date().toISOString() };
 });
 ipcMain.handle("document:open", () => persistedContent
-  ? { canceled: false, filePath: persistedPath, content: persistedContent }
+  ? { canceled: false, filePath: persistedPath, content: persistedContent, format: "livro", warnings: [] }
   : { canceled: true });
-ipcMain.handle("document:confirm-unsaved", () => "discard");
+ipcMain.handle("document:open-external", (_event, filePath) => {
+  externalOpenCalls += 1;
+  return { canceled: false, filePath, content: externalContent, format: "livro", warnings: [] };
+});
+ipcMain.handle("document:autosave", () => ({ skipped: false, savedAt: new Date().toISOString() }));
+ipcMain.handle("recovery:list", () => []);
+ipcMain.handle("backup:recover", () => ({ canceled: true, unavailable: true }));
+ipcMain.handle("document:confirm-unsaved", () => confirmDecision);
 ipcMain.handle("manuscript:confirm-replace", () => true);
 ipcMain.handle("manuscript:import", () => ({ canceled: true }));
 ipcMain.handle("asset:pick-image", () => ({
@@ -34,6 +46,8 @@ ipcMain.handle("asset:pick-image", () => ({
   },
 }));
 ipcMain.on("document:set-dirty", () => undefined);
+ipcMain.on("document:set-operation-busy", () => undefined);
+ipcMain.on("document:new-session", () => undefined);
 ipcMain.on("document:finish-close", () => undefined);
 
 function assert(condition, message) {
@@ -392,6 +406,32 @@ app.whenReady().then(async () => {
   assert(interactions.singleModePages === 1 && interactions.activeSinglePage === 1, "Single-page navigation failed.");
   assert(interactions.objectPageAfterReflow === interactions.objectPageBeforeReflow, "Text reflow moved a page-fixed object.");
   assert(persistedContent && JSON.parse(persistedContent).schemaVersion === 3, "Smoke project was not persisted with schema 3.");
+
+  externalContent = JSON.stringify({ ...JSON.parse(persistedContent), title: "Documento associado externo" });
+  await window.webContents.executeJavaScript(`(() => {
+    const editor = document.querySelector('.story-editor');
+    const lastRun = [...document.querySelectorAll('[data-story-from]')].at(-1);
+    const text = lastRun.firstChild;
+    const selection = window.getSelection();
+    selection.setBaseAndExtent(text, text.textContent.length, text, text.textContent.length);
+    editor.focus();
+    const event = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', { value: { getData: () => ' alteração não salva' } });
+    editor.dispatchEvent(event);
+  })()`);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  confirmDecision = "cancel";
+  window.webContents.send("document:open-external-request", "C:\\Teste\\Meu primeiro livro.livro");
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const canceledExternalTitle = await window.webContents.executeJavaScript("document.title");
+  assert(externalOpenCalls === 0 && !canceledExternalTitle.includes("Documento associado externo"),
+    "Canceling an associated open replaced a dirty document.");
+  confirmDecision = "discard";
+  window.webContents.send("document:open-external-request", "C:\\Teste\\História São Paulo\\Meu primeiro livro.livro");
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  const acceptedExternalTitle = await window.webContents.executeJavaScript("document.title");
+  assert(externalOpenCalls === 1 && acceptedExternalTitle.includes("Documento associado externo"),
+    "The associated open was not forwarded after unsaved-change confirmation.");
 
   await window.webContents.executeJavaScript(`(async () => {
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
