@@ -6,6 +6,7 @@ export interface RuntimeResourcePaths {
   preload: string;
   renderer: string;
   windowIcon: string;
+  sRgbIccProfile: string;
 }
 
 const PACKAGED_SMOKE_ARGUMENT = "--livro-studio-packaged-smoke=";
@@ -50,5 +51,8 @@ export function resolveRuntimeResourcePaths(
     windowIcon: packaged
       ? path.join(resourcesDirectory, "app.ico")
       : path.resolve(mainDirectory, "../build/app.ico"),
+    sRgbIccProfile: packaged
+      ? path.join(resourcesDirectory, "sRGB.icc")
+      : path.resolve(mainDirectory, "../build/sRGB.icc"),
   };
 }

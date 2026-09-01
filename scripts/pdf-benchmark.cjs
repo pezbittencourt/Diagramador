@@ -208,6 +208,21 @@ async function createRasterFixtures(window) {
   return fixtures;
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Um marcador rico pode legitimamente quebrar entre duas linhas (largura ou
+// hifenização, que insere um "-" visual antes da tag seguinte); tolera tags
+// HTML e um hífen opcional entre qualquer par de caracteres do marcador.
+function containsAcrossLineBreak(html, marker) {
+  if (html.includes(marker)) return true;
+  const flexible = [...marker]
+    .map((character) => escapeRegExp(character))
+    .join("-?(?:<[^>]*>)*");
+  return new RegExp(flexible, "u").test(html);
+}
+
 function countMarkupClass(html, className) {
   const classAttribute = /\bclass\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
   let count = 0;
@@ -224,7 +239,7 @@ function workingSetKb() {
     .reduce((total, metric) => total + (metric.memory?.workingSetSize ?? 0), 0);
 }
 
-function registerIpcHandlers(renderPdfChunksAndWriteFile) {
+function registerIpcHandlers(renderPdfChunksAndWriteFile, iccProfile) {
   ipcMain.handle("manuscript:confirm-replace", async () => true);
   ipcMain.handle("document:confirm-unsaved", async () => "discard");
   ipcMain.handle("document:open", async () => ({ canceled: true }));
@@ -307,7 +322,7 @@ function registerIpcHandlers(renderPdfChunksAndWriteFile) {
       "SUBLINHADO-BENCHMARK",
       "COR-BENCHMARK",
     ]) {
-      assert(serializedHtml.includes(marker), `O marcador rico ${marker} não chegou aos lotes PDF.`);
+      assert(containsAcrossLineBreak(serializedHtml, marker), `O marcador rico ${marker} não chegou aos lotes PDF.`);
     }
     for (const styleId of ["chapter-title", "subtitle", "quote", "dedication"]) {
       assert(
@@ -337,6 +352,7 @@ function registerIpcHandlers(renderPdfChunksAndWriteFile) {
       },
       outputPath,
       request,
+      iccProfile,
     );
     const wallDurationMs = performance.now() - wallStartedAt;
     const memoryAfterKb = workingSetKb();
@@ -601,7 +617,8 @@ async function run() {
 
   const { renderPdfChunksAndWriteFile } = require(pdfExportEntry);
   const { countPdfPages } = require(pdfFilesEntry);
-  registerIpcHandlers(renderPdfChunksAndWriteFile);
+  const iccProfile = await fs.readFile(path.join(root, "build", "sRGB.icc"));
+  registerIpcHandlers(renderPdfChunksAndWriteFile, iccProfile);
 
   windowRef = new BrowserWindow({
     width: 1600,

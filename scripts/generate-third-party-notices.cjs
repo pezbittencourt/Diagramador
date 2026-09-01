@@ -32,12 +32,31 @@ const sections = packages.map((item) => {
   return `${heading}${text}`;
 });
 
+// Recursos binários empacotados que não vêm do npm (ex.: perfis ICC), com sua
+// própria licença lida diretamente do arquivo redistribuído junto ao asset.
+const bundledAssets = [
+  {
+    name: "sRGB.icc (perfil de cor sRGB IEC61966-2.1, littleCMS)",
+    licenseFile: "build/sRGB.icc.LICENSE-ZLIB",
+    readmeFile: "build/sRGB.icc.README",
+  },
+];
+const bundledSections = bundledAssets.map((asset) => {
+  const license = fs.readFileSync(path.join(root, asset.licenseFile), "utf8").trim();
+  const readme = fs.readFileSync(path.join(root, asset.readmeFile), "utf8").trim();
+  return `${asset.name}\nUsado em: output intent PDF/X-4 da exportação de PDF.`
+    + `\n\n--- ${path.basename(asset.readmeFile)} ---\n${readme}`
+    + `\n\n--- ${path.basename(asset.licenseFile)} ---\n${license}`;
+});
+
 const output = [
   "LIVRO STUDIO — AVISOS DE TERCEIROS",
   "",
   "Gerado a partir das dependências de produção instaladas. Este arquivo não define uma licença pública para o Livro Studio, que permanece um projeto pessoal sem licença pública declarada.",
   "",
   ...sections.map((section) => `${"=".repeat(78)}\n${section}`),
+  `${"=".repeat(78)}\nRECURSOS BINÁRIOS EMPACOTADOS (NÃO NPM)`,
+  ...bundledSections.map((section) => `${"=".repeat(78)}\n${section}`),
   "",
 ].join("\n");
 fs.writeFileSync(path.join(root, "THIRD_PARTY_NOTICES.txt"), output, "utf8");

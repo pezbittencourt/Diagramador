@@ -60,6 +60,7 @@ function layoutWithPageStyles(pageStyles: ResolvedInlineStyle[][]): LayoutSnapsh
           renderedWidthMm: styles.length,
           wordSpacingMm: 0,
           alignment: "left",
+          hyphenated: false,
           runs: styles.map((style, index) => ({
             text: "x",
             from: index,

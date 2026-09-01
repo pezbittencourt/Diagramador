@@ -8,6 +8,7 @@ import type {
   RichTextDocument,
   StoryBlock,
 } from "../domain/document";
+import { hyphenationBreakOffsets } from "../domain/hyphenation";
 import { resolveFacingEdges } from "../domain/pageGeometry";
 import { composeStory } from "./pagination";
 import type { LaidOutTextLine } from "./layoutTypes";
@@ -78,10 +79,12 @@ describe("LayoutSnapshot line geometry", () => {
   });
 
   it("slices rich-text runs without loss when a physical line breaks inside a run", () => {
+    // Dígitos não são hifenizáveis pelos padrões de português: garante uma
+    // quebra bruta dentro do run (sem hífen), o cenário que este teste cobre.
     const snapshot = composeFixture({
       content: [
         { type: "text", text: "ab" },
-        { type: "text", text: "CDEFGHIJKL", marks: [{ type: "bold", attrs: { value: true } }] },
+        { type: "text", text: "0123456789", marks: [{ type: "bold", attrs: { value: true } }] },
       ],
       setup: { width: 9, height: 30 },
       style: { fontSizePt: 9, lineHeight: 1, firstLineIndentMm: 0, spaceAfterPt: 0 },
@@ -89,18 +92,19 @@ describe("LayoutSnapshot line geometry", () => {
     const lines = snapshotLines(snapshot);
 
     expect(lines.map((line) => line.runs.map((run) => run.text).join(""))).toEqual([
-      "abCDE",
-      "FGHIJ",
-      "KL",
+      "ab012",
+      "34567",
+      "89",
     ]);
     expect(lines[0].runs.map((run) => ({ text: run.text, from: run.from, to: run.to, bold: run.style.fontWeight })))
       .toEqual([
         { text: "ab", from: 0, to: 2, bold: 400 },
-        { text: "CDE", from: 2, to: 5, bold: 700 },
+        { text: "012", from: 2, to: 5, bold: 700 },
       ]);
     expect(lines[1].runs).toHaveLength(1);
-    expect(lines[1].runs[0]).toMatchObject({ text: "FGHIJ", from: 5, to: 10, globalFrom: 5, globalTo: 10 });
+    expect(lines[1].runs[0]).toMatchObject({ text: "34567", from: 5, to: 10, globalFrom: 5, globalTo: 10 });
     expect(lines.flatMap((line) => line.runs).every((run) => run.advanceMm === run.text.length)).toBe(true);
+    expect(lines.every((line) => !line.hyphenated)).toBe(true);
   });
 
   it("emits strictly monotonic topMm values within each physical page", () => {
@@ -303,5 +307,140 @@ describe("LayoutSnapshot line geometry", () => {
       offset = line.to;
     }
     expect(offset).toBe(source.length);
+  });
+});
+
+describe("hyphenation", () => {
+  it("breaks a long Portuguese word with a hyphen instead of pushing it whole to the next line", () => {
+    const snapshot = composeFixture({
+      content: [{ type: "text", text: "desenvolvimento" }],
+      setup: { width: 12, height: 30 },
+      style: { fontSizePt: 9, lineHeight: 1, firstLineIndentMm: 0, spaceAfterPt: 0 },
+    });
+    const lines = snapshotLines(snapshot);
+
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines[0].hyphenated).toBe(true);
+    expect(lines.at(-1)!.hyphenated).toBe(false);
+    // A quebra ocorre exatamente num ponto silábico válido do módulo de hifenização.
+    const validOffsets = hyphenationBreakOffsets("desenvolvimento");
+    for (const line of lines.slice(0, -1)) {
+      if (line.hyphenated) expect(validOffsets).toContain(line.to);
+    }
+    expect(lines.map((line) => line.runs.map((run) => run.text).join("")).join(""))
+      .toBe("desenvolvimento");
+  });
+
+  it("does not hyphenate a word that has no valid Portuguese break points", () => {
+    const snapshot = composeFixture({
+      content: [{ type: "text", text: "0123456789012" }],
+      setup: { width: 6, height: 30 },
+      style: { fontSizePt: 9, lineHeight: 1, firstLineIndentMm: 0, spaceAfterPt: 0 },
+    });
+    const lines = snapshotLines(snapshot);
+
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines.every((line) => !line.hyphenated)).toBe(true);
+  });
+
+  it("accounts for the hyphen glyph width when justifying a hyphenated line", () => {
+    const snapshot = composeFixture({
+      content: [{ type: "text", text: "uma palavra desenvolvimento continua" }],
+      setup: { width: 12, height: 30 },
+      style: { fontSizePt: 9, lineHeight: 1, firstLineIndentMm: 0, spaceAfterPt: 0, alignment: "justify" },
+    });
+    const hyphenatedLine = snapshotLines(snapshot).find((line) => line.hyphenated);
+
+    expect(hyphenatedLine).toBeDefined();
+    expect(hyphenatedLine!.renderedWidthMm).toBeLessThanOrEqual(hyphenatedLine!.availableWidthMm + 1e-6);
+  });
+});
+
+describe("orphan and widow control", () => {
+  const paragraphStyleOverrides = {
+    fontSizePt: 10,
+    lineHeight: 1,
+    firstLineIndentMm: 0,
+    spaceBeforePt: 0,
+    spaceAfterPt: 0,
+  } as const;
+
+  function composeWithFiller(fillerText: string, targetText: string, pageHeightMm: number) {
+    const document = createDefaultDocument(new Date("2026-08-15T00:00:00Z"));
+    const body = { ...document.styles[0], ...paragraphStyleOverrides };
+    const pageSetup: PageSetup = {
+      ...document.pageSetup,
+      width: 5,
+      height: pageHeightMm,
+      margins: { top: 2, bottom: 2, inner: 0, outer: 0 },
+      bleed: { top: 0, bottom: 0, inner: 0, outer: 0 },
+    };
+    const styles = document.styles.map((candidate) => candidate.id === body.id ? body : candidate);
+    const story: RichTextDocument = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          id: "filler",
+          attrs: { styleId: body.id },
+          content: [{ type: "text", text: fillerText }],
+        },
+        {
+          type: "paragraph",
+          id: "target",
+          attrs: { styleId: body.id },
+          content: [{ type: "text", text: targetText }],
+        },
+      ],
+    };
+    return composeStory({
+      storyId: "orphan-widow-story",
+      content: story,
+      pageSetup,
+      styles,
+      measurer: unitMeasurer,
+    });
+  }
+
+  function targetLineHeightMm(targetText: string): number {
+    const tall = composeWithFiller("abcd", targetText, 500);
+    const line = tall.pages
+      .flatMap((page) => page.fragments)
+      .find((fragment) => fragment.blockId === "target")!.lines[0];
+    return line.heightMm;
+  }
+
+  it("defers an entire short paragraph instead of leaving a single orphan line at the bottom of a page", () => {
+    const targetText = "wxyz wxyz"; // duas linhas de uma "palavra" em uma coluna de 5mm
+    const lineHeightMm = targetLineHeightMm(targetText);
+    // Com o preenchimento (1 linha), sobra espaço para só mais 1 linha do alvo.
+    const pageHeightMm = lineHeightMm * 2 + 4;
+    const snapshot = composeWithFiller("abcd", targetText, pageHeightMm);
+
+    expect(snapshot.pages[0].fragments.map((fragment) => fragment.blockId)).toEqual(["filler"]);
+
+    const targetFragments = snapshot.pages
+      .flatMap((page) => page.fragments)
+      .filter((fragment) => fragment.blockId === "target");
+    expect(targetFragments).toHaveLength(1);
+    expect(targetFragments[0].lineCount).toBe(2);
+    expect(targetFragments[0].text).toBe(targetText);
+  });
+
+  it("pulls a line back so at least two lines of a paragraph start together after a page break", () => {
+    const targetText = "wxyz wxyz wxyz wxyz wxyz"; // cinco linhas em uma coluna de 5mm
+    const lineHeightMm = targetLineHeightMm(targetText);
+    // A página cheia cabe 5 linhas; com 1 linha de preenchimento sobram 4 "naturais" para o alvo.
+    const pageHeightMm = lineHeightMm * 5 + 4;
+    const snapshot = composeWithFiller("abcd", targetText, pageHeightMm);
+
+    const targetFragments = snapshot.pages
+      .flatMap((page) => page.fragments)
+      .filter((fragment) => fragment.blockId === "target");
+
+    expect(targetFragments).toHaveLength(2);
+    expect(targetFragments[0].lineCount).toBe(3);
+    expect(targetFragments[1].lineCount).toBe(2);
+    expect(targetFragments.map((fragment) => fragment.text).join("")).toBe(targetText);
   });
 });

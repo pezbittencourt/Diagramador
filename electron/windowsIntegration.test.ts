@@ -33,6 +33,7 @@ describe("Windows distribution integration", () => {
     expect(resolved.preload).toBe(path.join(mainDirectory, "preload.js"));
     expect(resolved.renderer).toContain(path.join("app.asar", "dist", "index.html"));
     expect(resolved.windowIcon).toBe(path.join(resources, "app.ico"));
+    expect(resolved.sRgbIccProfile).toBe(path.join(resources, "sRGB.icc"));
     expect(Object.values(resolved).join(" ")).not.toMatch(/src[\\/]|OneDrive|zefer/i);
   });
 

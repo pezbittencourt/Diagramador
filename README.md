@@ -64,6 +64,7 @@ software assistido por Inteligência Artificial**.
 - Canvas 2D do Chromium para medir runs tipográficos no preview.
 - `printToPDF` do Chromium para materializar a projeção editorial em PDF.
 - `pdf-lib` para mesclar os lotes e normalizar os metadados do arquivo final.
+- `hyphen` (padrões `pt`) para hifenização determinística por algoritmo de Liang/TeX.
 
 As decisões de domínio estão em [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
@@ -93,6 +94,9 @@ primeiro uso em uma máquina externa limpa.
 - Edição direta no ambiente paginado com cursor, seleção, clipboard e undo/redo.
 - Negrito, itálico, sublinhado, fonte, tamanho e cor por seleção ou cursor.
 - Alinhamento, entrelinha, espaços e recuos com impacto real na paginação.
+- Hifenização automática em português e controle de órfãs/viúvas (mínimo de
+  duas linhas por quebra de página), com o mesmo motor usado no preview e no
+  PDF exportado.
 - Estilos Corpo de texto, Título de capítulo, Subtítulo, Citação e Dedicatória.
 - Edição global de estilos com atualização de todos os parágrafos vinculados.
 - História estruturada em parágrafos e quebras manuais; reflow completo.
@@ -112,6 +116,8 @@ primeiro uso em uma máquina externa limpa.
   imagens, transparência, empilhamento e geometria fracionária.
 - Preflight de fontes e imagens, conferência do total de páginas e gravação
   atômica para não expor um PDF parcial no destino.
+- Identificação PDF/X-4 com output intent ICC (sRGB IEC61966-2.1) embutido,
+  metadados XMP e identificador de arquivo únicos por exportação.
 - Impressão sequencial em lotes de até 20 páginas numa `BrowserWindow` dedicada,
   oculta e sandboxed, seguida por merge na ordem física.
 - Desduplicação global de PNG/JPEG/WebP: os chunks HTML usam arquivos relativos
@@ -266,8 +272,9 @@ O fluxo da exportação é:
    cada HTML sequencialmente por URL `file:` numa `BrowserWindow` sandboxed;
 7. imprimir um lote, acrescentá-lo imediatamente ao documento `pdf-lib` e apagar
    seu HTML antes de criar o próximo;
-8. definir metadados, validar a contagem final e somente então realizar a gravação
-   atômica do PDF mesclado.
+8. definir metadados, aplicar identificação PDF/X-4 (output intent ICC sRGB,
+   XMP e `/ID` do trailer), validar a contagem final e somente então realizar
+   a gravação atômica do PDF mesclado.
 
 Preview e PDF compartilham `ComposedTextLayer`: o preview converte mm/pt para pixels
 no zoom atual e o PDF emite as mesmas linhas em mm/pt. O snapshot já contém X, Y,
@@ -338,8 +345,9 @@ snap; a tolerância é visual, portanto acompanha o zoom.
   próximos agrupados; objetos, guias e estilos globais usam até 100 snapshots em
   um histórico contextual separado.
 - IME e seleção em limites vazios ainda precisam de refinamento multilíngue.
-- Justificação não tem hifenização, microtipografia, órfãs/viúvas ou
-  keep-with-next.
+- Hifenização e controle de órfãs/viúvas cobrem português (mínimo de duas
+  linhas por quebra); justificação ainda não tem microtipografia (subpixel/
+  kerning por linha) nem keep-with-next.
 - Reflow é integral e todos os spreads são renderizados; livros muito longos
   precisarão de composição incremental e virtualização.
 - Fontes precisam estar disponíveis no sistema. O preflight rejeita famílias ou
@@ -364,8 +372,10 @@ snap; a tolerância é visual, portanto acompanha o zoom.
 - Parágrafos/runs vazios usam o caractere invisível U+200B para manter caret e altura
   de linha. Dependendo do extrator, esse caractere pode aparecer no texto extraído
   do PDF, embora não seja visível na página.
-- A saída ainda não é PDF/X, não oferece CMYK, perfil ICC, marcas de corte ou
-  imposição; cores seguem o pipeline RGB do Chromium.
+- O PDF traz identificação PDF/X-4 e output intent com perfil ICC sRGB
+  embutido, mas cores seguem o pipeline RGB do Chromium — não há conversão
+  para CMYK, marcas de corte, imposição, nem verificação formal de
+  conformidade (preflight) contra a norma.
 - EPUB ainda não foi implementado.
 - O instalador não possui assinatura Authenticode e pode receber aviso do
   SmartScreen. Os ícones incluídos são placeholders técnicos, não identidade final.

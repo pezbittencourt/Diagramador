@@ -38,7 +38,7 @@ O servidor de desenvolvimento abre o showcase independente. O build é gravado e
 - `TextField`, `NumberField`, `SelectField`, `ColorField`;
 - `Toggle`, `Checkbox`, `SegmentedControl`;
 - `Button`, `IconButton`, `ButtonGroup`;
-- `Panel`, `Card`, `Label`, `HelpText`, `Divider`;
+- `Panel`, `Card`, `Label`, `HelpT  ext`, `Divider`;
 - `Dialog`/`Modal`, `ConfirmDialog`;
 - `StatusIndicator`, `EmptyState`.
 

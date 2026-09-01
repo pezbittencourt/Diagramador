@@ -19,6 +19,7 @@ export interface PackagedSmokeOptions {
   userData: string;
   renderer: string;
   preload: string;
+  sRgbIccProfile: string;
 }
 
 async function inspectPackagedRenderer(renderer: string, preload: string) {
@@ -147,6 +148,7 @@ export async function runPackagedSmoke(options: PackagedSmokeOptions): Promise<v
       assets: pdfAssets,
     });
     const rssBeforePdf = process.memoryUsage().rss;
+    const iccProfile = await readFile(options.sRgbIccProfile);
     const pdf = await renderPdfChunksAndWriteFile(
       () => new BrowserWindow({
         width: 1024,
@@ -162,6 +164,7 @@ export async function runPackagedSmoke(options: PackagedSmokeOptions): Promise<v
       }),
       pdfPath,
       pdfRequest,
+      iccProfile,
     );
     const rssAfterPdf = process.memoryUsage().rss;
 

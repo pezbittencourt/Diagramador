@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Manual simples de uso do Livro Studio 1.0 para Windows.">
+  <title>Manual do Usuário — Livro Studio 1.0</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #fffdf8;
+      --surface: #ffffff;
+      --ink: #252721;
+      --muted: #62675d;
+      --line: #dfe2d8;
+      --brand: #315c47;
+      --brand-dark: #234535;
+      --soft: #eef5f0;
+      --warning: #fff5d9;
+      --danger: #9d332d;
+      --shadow: 0 8px 30px rgba(38, 48, 40, .08);
+      --radius: 14px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 1.5rem; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font: 16px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    a { color: var(--brand-dark); text-underline-offset: .18em; }
+    a:hover { text-decoration-thickness: 2px; }
+    a:focus-visible, summary:focus-visible {
+      outline: 3px solid #d09b32;
+      outline-offset: 3px;
+      border-radius: 4px;
+    }
+    h1, h2, h3 { line-height: 1.2; letter-spacing: -.02em; }
+    h1 { margin: .25rem 0 .75rem; font-size: clamp(2.2rem, 6vw, 4.2rem); }
+    h2 { margin: 0 0 1rem; font-size: clamp(1.55rem, 3vw, 2.1rem); }
+    h3 { margin: 1.6rem 0 .45rem; font-size: 1.1rem; }
+    p { margin: .55rem 0 1rem; }
+    code, kbd {
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: #f5f6f2;
+      padding: .08rem .35rem;
+      font: .9em ui-monospace, Consolas, monospace;
+    }
+    kbd { box-shadow: 0 1px 0 #b8bcb3; white-space: nowrap; }
+    .skip-link {
+      position: fixed;
+      top: .6rem;
+      left: .6rem;
+      z-index: 10;
+      transform: translateY(-180%);
+      padding: .65rem .9rem;
+      border-radius: 8px;
+      background: var(--ink);
+      color: white;
+    }
+    .skip-link:focus { transform: translateY(0); }
+    .hero {
+      padding: clamp(3rem, 9vw, 7rem) 1.25rem 3rem;
+      background: linear-gradient(145deg, #e8f1eb, #fffdf8 65%);
+      border-bottom: 1px solid var(--line);
+    }
+    .hero-inner, .layout { max-width: 1100px; margin: auto; }
+    .eyebrow {
+      color: var(--brand);
+      font-weight: 750;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      font-size: .78rem;
+    }
+    .lead { max-width: 720px; color: var(--muted); font-size: 1.13rem; }
+    .version { display: inline-block; margin-top: .5rem; color: var(--muted); font-size: .9rem; }
+    .layout {
+      display: grid;
+      grid-template-columns: 230px minmax(0, 1fr);
+      gap: clamp(1.5rem, 5vw, 4rem);
+      padding: 2rem 1.25rem 5rem;
+    }
+    nav { position: sticky; top: 1rem; align-self: start; }
+    nav strong { display: block; margin-bottom: .55rem; }
+    nav ol { margin: 0; padding: 0; list-style: none; }
+    nav a {
+      display: block;
+      padding: .43rem .65rem;
+      border-left: 3px solid transparent;
+      color: var(--muted);
+      text-decoration: none;
+    }
+    nav a:hover { border-color: var(--brand); background: var(--soft); color: var(--ink); }
+    main { min-width: 0; }
+    section {
+      margin-bottom: 1.3rem;
+      padding: clamp(1.25rem, 4vw, 2.25rem);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .start { border-top: 5px solid var(--brand); }
+    .steps { margin: 1rem 0 0; padding: 0; list-style: none; counter-reset: step; }
+    .steps > li {
+      position: relative;
+      min-height: 3rem;
+      margin: 0 0 1rem;
+      padding-left: 3.2rem;
+      counter-increment: step;
+    }
+    .steps > li::before {
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: -.1rem;
+      display: grid;
+      width: 2.25rem;
+      height: 2.25rem;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--brand);
+      color: white;
+      font-weight: 800;
+    }
+    .steps strong { display: block; }
+    .choice-grid, .shortcut-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: .8rem;
+    }
+    .choice, .tip, .warning {
+      padding: 1rem;
+      border-radius: 10px;
+      background: var(--soft);
+    }
+    .choice strong { display: block; margin-bottom: .2rem; color: var(--brand-dark); }
+    .warning { margin: 1rem 0; background: var(--warning); border-left: 4px solid #c58b19; }
+    .warning strong, .tip strong { display: block; }
+    .file-table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    .file-table th, .file-table td { padding: .75rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .file-table th { color: var(--muted); font-size: .85rem; text-transform: uppercase; letter-spacing: .05em; }
+    .yes { color: var(--brand-dark); font-weight: 750; }
+    .no { color: var(--danger); font-weight: 750; }
+    .compact { margin: .5rem 0; padding-left: 1.3rem; }
+    .compact li { margin: .35rem 0; }
+    details { border-top: 1px solid var(--line); padding: .9rem 0; }
+    details:last-child { padding-bottom: 0; }
+    summary { cursor: pointer; font-weight: 720; color: var(--brand-dark); }
+    .shortcuts { margin: 0; }
+    .shortcut-grid div {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: .65rem .8rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .shortcut-grid dt { font-weight: 650; }
+    .shortcut-grid dd { margin: 0; }
+    .checklist { padding-left: 0; list-style: none; }
+    .checklist li { margin: .5rem 0; padding-left: 1.65rem; position: relative; }
+    .checklist li::before { content: "✓"; position: absolute; left: 0; color: var(--brand); font-weight: 900; }
+    footer { padding: 2rem 1.25rem; border-top: 1px solid var(--line); color: var(--muted); text-align: center; }
+    .back-top { display: inline-block; margin-top: .6rem; }
+    .print-only { display: none; }
+
+    @media (max-width: 760px) {
+      .layout { grid-template-columns: 1fr; }
+      nav { position: static; padding: 1rem; border: 1px solid var(--line); border-radius: 10px; background: white; }
+      nav ol { columns: 2; }
+      .choice-grid, .shortcut-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 430px) { nav ol { columns: 1; } }
+    @media print {
+      @page { margin: 16mm; }
+      body { background: white; font-size: 10.5pt; }
+      .hero { padding: 0 0 1.2rem; background: white; }
+      .layout { display: block; padding: 1rem 0; }
+      nav, .skip-link, .back-top { display: none; }
+      section { box-shadow: none; break-inside: avoid; margin-bottom: .7rem; padding: 1rem; }
+      a { color: inherit; text-decoration: none; }
+      .print-only { display: inline; }
+    }
+  </style>
+</head>
+<body id="topo">
+  <a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
+
+  <header class="hero">
+    <div class="hero-inner">
+      <span class="eyebrow">Manual do usuário</span>
+      <h1>Livro Studio</h1>
+      <p class="lead">Do manuscrito ao PDF: um guia direto para criar, editar, diagramar e salvar seu livro com segurança.</p>
+      <span class="version">Versão 1.0 · Windows 10/11</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav aria-label="Conteúdo do manual">
+      <strong>Neste manual</strong>
+      <ol>
+        <li><a href="#inicio">Comece aqui</a></li>
+        <li><a href="#arquivos">Qual arquivo usar?</a></li>
+        <li><a href="#interface">Conheça a tela</a></li>
+        <li><a href="#texto">Edite o texto</a></li>
+        <li><a href="#pagina">Configure as páginas</a></li>
+        <li><a href="#imagens">Trabalhe com imagens</a></li>
+        <li><a href="#numeracao">Configure a numeração</a></li>
+        <li><a href="#salvar">Salve e recupere</a></li>
+        <li><a href="#pdf">Exporte o PDF</a></li>
+        <li><a href="#atalhos">Atalhos</a></li>
+        <li><a href="#problemas">Resolva problemas</a></li>
+      </ol>
+    </nav>
+
+    <main id="conteudo">
+      <section class="start" id="inicio">
+        <span class="eyebrow">Rota mais curta</span>
+        <h2>Comece em cinco passos</h2>
+        <ol class="steps">
+          <li><strong>Clique em “Importar manuscrito”.</strong> Escolha um arquivo <code>.docx</code> ou <code>.txt</code>.</li>
+          <li><strong>Revise o texto nas páginas.</strong> Clique no texto para escrever e use a barra de formatação.</li>
+          <li><strong>Configure o livro.</strong> No painel esquerdo, escolha tamanho, margens, sangria e numeração.</li>
+          <li><strong>Clique em “Salvar como”.</strong> Guarde o projeto no formato <code>.livro</code>.</li>
+          <li><strong>Clique em “Exportar PDF”.</strong> Escolha as páginas, confira a sangria e defina o destino.</li>
+        </ol>
+        <div class="tip"><strong>Boa prática</strong>Salve o projeto antes de iniciar mudanças importantes e confira o PDF final página por página.</div>
+      </section>
+
+      <section id="arquivos">
+        <span class="eyebrow">Evite confusão</span>
+        <h2>Qual arquivo usar?</h2>
+        <div class="choice-grid">
+          <div class="choice"><strong>Tenho o texto do livro</strong>Use <b>Importar manuscrito</b> com <code>.docx</code> ou <code>.txt</code>.</div>
+          <div class="choice"><strong>Já trabalhei no Livro Studio</strong>Use <b>Abrir projeto</b> com o arquivo <code>.livro</code>.</div>
+        </div>
+        <table class="file-table">
+          <thead><tr><th>Formato</th><th>O que é</th><th>Ação correta</th></tr></thead>
+          <tbody>
+            <tr><td><code>.livro</code></td><td>Projeto completo do Livro Studio</td><td class="yes">Abrir projeto</td></tr>
+            <tr><td><code>.docx</code></td><td>Manuscrito do Microsoft Word</td><td class="yes">Importar manuscrito</td></tr>
+            <tr><td><code>.txt</code></td><td>Manuscrito em texto simples</td><td class="yes">Importar manuscrito</td></tr>
+            <tr><td><code>.doc</code> ou <code>.docs</code></td><td>Formato antigo ou extensão incorreta</td><td class="no">Converta/salve como .docx</td></tr>
+          </tbody>
+        </table>
+        <div class="warning"><strong>Atenção</strong>Importar outro manuscrito substitui o texto atual após a confirmação. Salve o projeto antes se quiser preservar a versão existente.</div>
+        <p>O DOCX traz parágrafos, títulos simples, negrito, itálico e sublinhado quando disponíveis. Tabelas, imagens, notas, cabeçalhos e rodapés do Word não são importados.</p>
+      </section>
+
+      <section id="interface">
+        <span class="eyebrow">Orientação</span>
+        <h2>Conheça a tela</h2>
+        <ul class="compact">
+          <li><strong>Barra superior:</strong> Novo, Abrir projeto, Importar manuscrito, Salvar, Salvar como, Versão anterior e Exportar PDF.</li>
+          <li><strong>Painel esquerdo:</strong> tamanho da página, margens, sangria, guias, imagens e numeração.</li>
+          <li><strong>Área central:</strong> páginas do livro, texto e imagens.</li>
+          <li><strong>Barra de formatação:</strong> estilos, fonte, tamanho, cor, ênfase, alinhamento, espaçamento e recuos.</li>
+          <li><strong>Barra inferior:</strong> total de páginas, formato do livro, nome do arquivo e situação do salvamento.</li>
+        </ul>
+        <p>Na parte superior, observe <b>Salvo</b>, <b>Alterações não salvas</b>, <b>Salvando…</b> ou <b>Falha na proteção</b>. Esses estados informam se o trabalho já está protegido.</p>
+      </section>
+
+      <section id="texto">
+        <span class="eyebrow">Escrita e formatação</span>
+        <h2>Edite o texto</h2>
+        <ol class="steps">
+          <li><strong>Clique sobre o texto de uma página.</strong> Digite, selecione, copie e cole normalmente.</li>
+          <li><strong>Selecione um trecho.</strong> Escolha fonte, tamanho, cor, negrito, itálico ou sublinhado.</li>
+          <li><strong>Para um parágrafo, escolha “Estilo”.</strong> Use Corpo de texto, Título de capítulo, Subtítulo, Citação ou Dedicatória.</li>
+          <li><strong>Para alterar um estilo no livro inteiro, clique em “Editar estilos”.</strong> As mudanças aparecem imediatamente em todos os parágrafos vinculados.</li>
+          <li><strong>Para começar na página seguinte, clique em “Quebra de página”.</strong> O atalho é <kbd>Ctrl</kbd> + <kbd>Enter</kbd>.</li>
+        </ol>
+        <div class="tip"><strong>Mais consistência, menos trabalho</strong>Prefira estilos para títulos e corpo do texto. Use ajustes locais somente para exceções.</div>
+      </section>
+
+      <section id="pagina">
+        <span class="eyebrow">Diagramação</span>
+        <h2>Configure e navegue pelas páginas</h2>
+        <h3>Tamanho e margens</h3>
+        <p>No painel esquerdo, escolha <b>A5</b>, <b>A4</b> ou <b>Personalizado</b>. Defina margens superior, inferior, interna e externa. Em livros, <b>Margens espelhadas</b> alterna os lados interno e externo corretamente.</p>
+        <h3>Sangria e guias</h3>
+        <p>Informe a sangria necessária para elementos que chegam à borda. Ative linhas de margem, linhas de sangria, réguas e guias somente quando precisar delas. O <b>Snapping</b> ajuda a encaixar objetos nas referências.</p>
+        <h3>Visualização</h3>
+        <p>Use <b>Spread</b> para ver páginas lado a lado ou <b>Página única</b> para concentrar-se em uma página. “Ir para”, as setas, o zoom, “Ajustar spread” e “Ajustar página” mudam apenas a visualização.</p>
+        <div class="warning"><strong>Se surgir o aviso de margens inválidas</strong>Reduza as margens ou aumente o tamanho da página. Todos os valores devem ser positivos e caber dentro da página.</div>
+      </section>
+
+      <section id="imagens">
+        <span class="eyebrow">Objetos</span>
+        <h2>Trabalhe com imagens</h2>
+        <ol class="steps">
+          <li><strong>Ative a página desejada</strong> clicando nela.</li>
+          <li><strong>Clique em “Inserir imagem”</strong> e escolha PNG, JPEG ou WebP.</li>
+          <li><strong>Mova a imagem</strong> arrastando-a ou ajustando X e Y em milímetros.</li>
+          <li><strong>Redimensione pelas alças</strong> ou informe largura e altura. Ative “Manter proporção” para evitar distorção.</li>
+          <li><strong>Use o painel da imagem</strong> para alinhar, mudar o empilhamento, duplicar ou excluir.</li>
+        </ol>
+        <p>A origem X 0 / Y 0 é o canto superior esquerdo da página acabada. Valores negativos levam a imagem para a área de sangria. A imagem fica presa à página física e não acompanha o texto quando ele muda.</p>
+      </section>
+
+      <section id="numeracao">
+        <span class="eyebrow">Fólios</span>
+        <h2>Configure a numeração editorial</h2>
+        <p>A <b>página física</b> é a posição real no arquivo. O <b>número lógico</b> é o número impresso no livro. Eles podem ser diferentes.</p>
+        <ol class="steps">
+          <li><strong>Escolha onde a contagem começa.</strong> Informe a página física e o número lógico correspondente.</li>
+          <li><strong>Escolha onde os números ficam visíveis.</strong> Defina o primeiro número exibido e, se necessário, o último.</li>
+          <li><strong>Escolha o formato e a posição.</strong> Use arábico ou romano, no alto ou rodapé, no lado interno, externo ou central.</li>
+          <li><strong>Oculte números específicos quando necessário.</strong> Separe-os por vírgula; eles continuam contando.</li>
+        </ol>
+        <div class="tip"><strong>Exemplo</strong>Se a página física 5 for a primeira página do texto, configure-a como número lógico 1. Você pode contar a partir dela e mostrar o número apenas mais adiante.</div>
+      </section>
+
+      <section id="salvar">
+        <span class="eyebrow">Proteção do trabalho</span>
+        <h2>Salve e recupere seu projeto</h2>
+        <ul class="compact">
+          <li><b>Salvar</b> atualiza o projeto atual.</li>
+          <li><b>Salvar como</b> cria outro arquivo <code>.livro</code>.</li>
+          <li>O ponto ao lado do título indica alterações ainda não salvas.</li>
+          <li>O autosave mantém uma cópia de recuperação separada, mas não substitui o hábito de salvar.</li>
+          <li><b>Versão anterior</b> permite carregar um backup. Depois, use <b>Salvar como</b> para preservá-lo.</li>
+        </ul>
+        <h3>Após um fechamento inesperado</h3>
+        <p>Se aparecer “Foi encontrada uma versão mais recente”, confira a data e a hora. Escolha <b>Recuperar</b> para abrir o autosave ou <b>Ignorar</b> para manter o projeto principal. Recuperar não sobrescreve o arquivo principal automaticamente.</p>
+      </section>
+
+      <section id="pdf">
+        <span class="eyebrow">Saída final</span>
+        <h2>Exporte o PDF</h2>
+        <ol class="steps">
+          <li><strong>Clique em “Exportar PDF”.</strong></li>
+          <li><strong>Escolha todas as páginas ou um intervalo.</strong> Exemplo: <code>1-10, 15, 20-25</code>.</li>
+          <li><strong>Decida sobre a sangria.</strong> Marque “Incluir sangria” quando o arquivo for para produção gráfica com elementos até a borda.</li>
+          <li><strong>Clique em “Escolher destino e exportar”.</strong> Aguarde a conclusão antes de fechar o programa.</li>
+          <li><strong>Abra e confira o PDF.</strong> Verifique tamanho, páginas, imagens, fontes e numeração.</li>
+        </ol>
+        <div class="warning"><strong>Importante</strong>O intervalo usa páginas físicas mostradas na área de trabalho, e não os números editoriais impressos. A exportação inclui até alterações ainda não salvas.</div>
+        <h3>Conferência antes de enviar</h3>
+        <ul class="checklist">
+          <li>O tamanho da página está correto.</li>
+          <li>Margens e sangria estão corretas.</li>
+          <li>Fontes e imagens aparecem como esperado.</li>
+          <li>A ordem e a quantidade de páginas estão corretas.</li>
+          <li>A numeração editorial começa e aparece nos lugares certos.</li>
+        </ul>
+      </section>
+
+      <section id="atalhos">
+        <span class="eyebrow">Uso mais rápido</span>
+        <h2>Atalhos essenciais</h2>
+        <dl class="shortcuts shortcut-grid">
+          <div><dt>Salvar</dt><dd><kbd>Ctrl</kbd> + <kbd>S</kbd></dd></div>
+          <div><dt>Negrito</dt><dd><kbd>Ctrl</kbd> + <kbd>B</kbd></dd></div>
+          <div><dt>Itálico</dt><dd><kbd>Ctrl</kbd> + <kbd>I</kbd></dd></div>
+          <div><dt>Sublinhado</dt><dd><kbd>Ctrl</kbd> + <kbd>U</kbd></dd></div>
+          <div><dt>Quebra de página</dt><dd><kbd>Ctrl</kbd> + <kbd>Enter</kbd></dd></div>
+          <div><dt>Desfazer</dt><dd><kbd>Ctrl</kbd> + <kbd>Z</kbd></dd></div>
+          <div><dt>Refazer</dt><dd><kbd>Ctrl</kbd> + <kbd>Y</kbd></dd></div>
+          <div><dt>Refazer (alternativo)</dt><dd><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd></dd></div>
+          <div><dt>Duplicar imagem</dt><dd><kbd>Ctrl</kbd> + <kbd>D</kbd></dd></div>
+          <div><dt>Mover imagem 0,5 mm</dt><dd><kbd>Setas</kbd></dd></div>
+          <div><dt>Mover imagem 5 mm</dt><dd><kbd>Shift</kbd> + <kbd>Setas</kbd></dd></div>
+          <div><dt>Excluir imagem</dt><dd><kbd>Delete</kbd></dd></div>
+        </dl>
+      </section>
+
+      <section id="problemas">
+        <span class="eyebrow">Ajuda e recuperação</span>
+        <h2>Resolva problemas comuns</h2>
+        <details>
+          <summary>Meu arquivo não aparece em “Importar manuscrito”</summary>
+          <p>Confira a extensão. A importação aceita somente <code>.docx</code> e <code>.txt</code>. Para <code>.doc</code>, abra no editor de texto e salve como DOCX. Para <code>.livro</code>, use <b>Abrir projeto</b>.</p>
+        </details>
+        <details>
+          <summary>A formatação do Word não veio completa</summary>
+          <p>Isso é esperado para recursos não compatíveis. O Livro Studio preserva formatação básica. Refaça tabelas, imagens, notas, cabeçalhos e rodapés diretamente no fluxo disponível.</p>
+        </details>
+        <details>
+          <summary>Não consigo exportar o PDF</summary>
+          <p>Corrija primeiro qualquer aviso de margens inválidas. Confirme também se as fontes usadas estão instaladas e se todas as imagens aparecem corretamente. Tente exportar novamente.</p>
+        </details>
+        <details>
+          <summary>Fechei o programa sem salvar</summary>
+          <p>Abra o Livro Studio novamente. Se houver autosave mais recente, escolha <b>Recuperar</b>. Você também pode tentar <b>Versão anterior</b> e depois usar <b>Salvar como</b>.</p>
+        </details>
+        <details>
+          <summary>O número do PDF não corresponde ao número impresso</summary>
+          <p>O seletor de PDF usa a página física. A numeração impressa é lógica e pode começar depois. Use o número mostrado na navegação “Ir para”.</p>
+        </details>
+        <details>
+          <summary>A imagem mudou de posição depois que editei o texto</summary>
+          <p>Imagens ficam ancoradas à página física, não a um parágrafo. Se o texto mudou de página, reposicione a imagem manualmente.</p>
+        </details>
+      </section>
+
+      <section aria-labelledby="principios-title">
+        <span class="eyebrow">Projeto deste manual</span>
+        <h2 id="principios-title">Feito para ser fácil de usar</h2>
+        <p>Este manual aplica as 10 heurísticas de Jakob Nielsen com linguagem familiar, estado visível, ações consistentes, prevenção de erros, instruções no momento certo, atalhos, conteúdo essencial e caminhos claros de recuperação e ajuda.</p>
+        <p class="print-only">Documento preparado para consulta impressa e digital.</p>
+      </section>
+
+      <a class="back-top" href="#topo">Voltar ao início ↑</a>
+    </main>
+  </div>
+
+  <footer>
+    <strong>Livro Studio 1.0</strong><br>
+    Manual do usuário · Windows 10/11
+  </footer>
+</body>
+</html>

@@ -51,21 +51,25 @@ export function ComposedTextLayer({ layoutPage, styles, units }: ComposedTextLay
                 color: paragraphStyle?.color,
               }}
             >
-              {line.runs.map((run, runIndex) => (
-                <span
-                  key={`${run.from}-${run.to}-${runIndex}`}
-                  data-story-from={run.globalFrom}
-                  data-story-to={run.globalTo}
-                  style={{
-                    fontFamily: run.style.fontFamily,
-                    fontSize: units.pt(run.style.fontSizePt),
-                    fontWeight: run.style.fontWeight,
-                    fontStyle: run.style.italic ? "italic" : "normal",
-                    textDecoration: run.style.underline ? "underline" : "none",
-                    color: run.style.color,
-                  }}
-                >{run.text || "\u200b"}</span>
-              ))}
+              {line.runs.map((run, runIndex) => {
+                const isLastRun = runIndex === line.runs.length - 1;
+                const visibleText = isLastRun && line.hyphenated ? `${run.text}-` : run.text;
+                return (
+                  <span
+                    key={`${run.from}-${run.to}-${runIndex}`}
+                    data-story-from={run.globalFrom}
+                    data-story-to={run.globalTo}
+                    style={{
+                      fontFamily: run.style.fontFamily,
+                      fontSize: units.pt(run.style.fontSizePt),
+                      fontWeight: run.style.fontWeight,
+                      fontStyle: run.style.italic ? "italic" : "normal",
+                      textDecoration: run.style.underline ? "underline" : "none",
+                      color: run.style.color,
+                    }}
+                  >{visibleText || "\u200b"}</span>
+                );
+              })}
             </div>
           );
         });

@@ -353,17 +353,34 @@ function inspectLoadedPdfChunk(webContents) {
     const rect = first.getBoundingClientRect();
     const articles = [...root.querySelectorAll('.pdf-export-page')];
     const runStyle = (marker) => {
-      const run = [...root.querySelectorAll('span[data-story-from]')]
-        .find((candidate) => candidate.textContent.includes(marker));
-      if (!run) return null;
-      const style = getComputedStyle(run);
-      return {
-        fontWeight: style.fontWeight,
-        fontStyle: style.fontStyle,
-        textDecorationLine: style.textDecorationLine,
-        color: style.color,
-        fontSize: style.fontSize,
+      const styleOf = (candidate) => {
+        const style = getComputedStyle(candidate);
+        return {
+          fontWeight: style.fontWeight,
+          fontStyle: style.fontStyle,
+          textDecorationLine: style.textDecorationLine,
+          color: style.color,
+          fontSize: style.fontSize,
+        };
       };
+      const runs = [...root.querySelectorAll('span[data-story-from]')];
+      for (let index = 0; index < runs.length; index += 1) {
+        const own = runs[index].textContent;
+        if (own.includes(marker)) return styleOf(runs[index]);
+        // O marcador pode ter quebrado para a linha seguinte, por largura ou por
+        // hifenização (que acrescenta um "-" visual ao fim do run renderizado).
+        // Exige que o marcador realmente atravesse a fronteira entre os dois runs
+        // (começe em "own" e termine em "next"), não apenas que "next" já o
+        // contenha sozinho — do contrário o run anterior seria escolhido errado.
+        const withoutTrailingHyphen = own.endsWith('-') ? own.slice(0, -1) : own;
+        const next = runs[index + 1]?.textContent ?? '';
+        const combined = withoutTrailingHyphen + next;
+        const at = combined.indexOf(marker);
+        if (at !== -1 && at < withoutTrailingHyphen.length && at + marker.length > withoutTrailingHyphen.length) {
+          return styleOf(runs[index]);
+        }
+      }
+      return null;
     };
     return {
       pages: articles.length,
@@ -436,6 +453,7 @@ app.whenReady().then(async () => {
     validatePdfExportRequest,
   } = require(path.join(root, "dist-electron", "pdfExport.js"));
   const { countPdfPages } = require(path.join(root, "dist-electron", "pdfFiles.js"));
+  const iccProfile = await fs.readFile(path.join(root, "build", "sRGB.icc"));
 
   ipcMain.handle("pdf:export", async (_event, rawRequest) => {
     assert(Array.isArray(rawRequest?.assets), "PDF export request did not include its asset registry.");
@@ -498,6 +516,7 @@ app.whenReady().then(async () => {
       },
       filePath,
       request,
+      iccProfile,
     );
     assert(renderWindow?.isDestroyed(), "The dedicated PDF render window was not destroyed.");
     const surface = aggregateChunkSurfaces(chunkSurfaces, request);
@@ -765,7 +784,9 @@ app.whenReady().then(async () => {
     Object.defineProperty(continuation, 'clipboardData', { value: { getData: () => ' CONTINUA-APOS-PDF' } });
     editor.dispatchEvent(continuation);
     await wait(220);
-    const continued = document.body.innerText.includes('CONTINUA-APOS-PDF');
+    // Usa textContent (não innerText): o marcador pode legitimamente quebrar em duas
+    // linhas/divs adjacentes por largura, e innerText insere uma quebra entre elas.
+    const continued = editor.textContent.includes('CONTINUA-APOS-PDF');
 
     button('Página única').click();
     await wait(100);

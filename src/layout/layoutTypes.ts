@@ -36,6 +36,8 @@ export interface LaidOutTextLine {
   renderedWidthMm: number;
   wordSpacingMm: number;
   alignment: ParagraphStyle["alignment"];
+  /** Linha quebrada dentro de uma palavra por hifenização; recebe um hífen visual ao final. */
+  hyphenated: boolean;
   runs: LaidOutInlineRun[];
 }
 

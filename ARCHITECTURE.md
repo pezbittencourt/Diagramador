@@ -114,8 +114,39 @@ O compositor calcula a largura natural e o `wordSpacingMm` das linhas justificad
 linhas finais e linhas sem espaços mantêm espaçamento zero. Centro e direita são
 projetados a partir da diferença entre largura disponível e largura natural. O
 Chromium ainda realiza o desenho dos glifos, mas não decide novamente a quebra ou
-a largura alvo. Ainda não há hifenização, controle de órfãs/viúvas ou
-justificação microtipográfica.
+a largura alvo. Ainda não há justificação microtipográfica (subpixel/kerning
+ajustado por linha).
+
+### Hifenização
+
+`src/domain/hyphenation.ts` expõe `hyphenationBreakOffsets`, uma função pura que
+consulta os padrões de hifenização de português (algoritmo de Liang/TeX, via o
+pacote `hyphen`, patterns `pt`) e devolve os offsets válidos dentro de uma
+palavra, exigindo ao menos dois caracteres de cada lado da quebra. O resultado é
+cacheado por palavra e independe do medidor de texto.
+
+Quando `wrapParagraph` encontra uma quebra que cairia no meio de uma palavra, ele
+primeiro tenta um ponto de hifenização que caiba na largura restante da linha,
+medindo o glifo do hífen com o estilo do último caractere antes da quebra e
+somando-o à largura natural da linha (afetando também a justificação). Só cai de
+volta ao comportamento anterior — empurrar a palavra inteira para a linha
+seguinte, ou, em último caso, uma quebra bruta sem hífen — quando a palavra não
+tem pontos de hifenização válidos ou nenhum deles cabe. A quebra em si continua
+operando sobre offsets reais do texto: nenhum caractere sintético é inserido na
+história; o hífen visual é acrescentado apenas na renderização
+(`ComposedTextLayer`, compartilhada por preview e PDF), no último run da linha
+hifenizada.
+
+### Órfãs e viúvas
+
+`composeStory` aplica um mínimo de duas linhas de cada lado de uma quebra de
+página dentro de um parágrafo (`applyOrphanWidowControl`). Quando a quebra
+natural deixaria menos linhas que o mínimo no início (órfã) ou no fim (viúva) da
+página, o motor ajusta o ponto de corte — reduzindo a página atual ou adiando o
+trecho inteiro para a próxima — sempre em uma única passada, sem recomposição
+retroativa. Numa página ainda vazia, a regra cede e aceita a quebra natural para
+garantir que o algoritmo sempre progride, mesmo em geometrias patológicas
+(coluna menor que quatro linhas de altura).
 
 ## Numeração editorial
 
@@ -405,8 +436,25 @@ o subset/embedding permitido por cada fonte continua dependente da fonte. O merg
 controla `Title`, `Creator` e `Producer`, mas não torna o arquivo estável byte a byte
 entre versões do Electron. CSS mm é convertido em pontos e pode sofrer
 arredondamento pequeno no `MediaBox` e nas coordenadas; os testes geométricos usam
-tolerância numérica. A rota é RGB e ainda não produz PDF/X, CMYK, perfil ICC,
-marcas de corte ou imposição.
+tolerância numérica. A rota permanece RGB — o Chromium não produz CMYK
+nativamente — e ainda não produz marcas de corte ou imposição.
+
+### PDF/X-4 e output intent ICC
+
+Depois do merge incremental, `electron/pdfOutputIntent.ts` aplica identificação
+PDF/X-4 (ISO 15930-7) ao PDF final: um `OutputIntent` `/S /GTS_PDFX` cujo
+`DestOutputProfile` embute o perfil ICC `sRGB IEC61966-2.1` (littleCMS,
+licença zlib, `build/sRGB.icc`; ver THIRD_PARTY_NOTICES.txt), metadados XMP
+declarando `pdfxid:GTS_PDFXVersion = PDF/X-4` e um identificador de arquivo
+(`/ID`) único no trailer. PDF/X-4 foi escolhido em vez de X-1a/X-3 porque
+permite transparência viva (o Chromium emite `/SMask` para PNG/WebP com
+alfa, incompatível com os perfis baseados em PDF 1.3) mantendo o pipeline em
+RGB em vez de forçar uma conversão para CMYK que o Chromium não sabe fazer
+nativamente.
+
+Isto cobre identificação PDF/X-4 e gerenciamento de cor por ICC; não
+substitui uma verificação formal de conformidade (preflight) contra a norma,
+nem produz CMYK, marcas de corte ou imposição.
 
 No desenvolvimento, Vite recarrega somente o renderer. Mudanças em
 `electron/main.ts`, `electron/preload.ts` ou módulos carregados por eles exigem
@@ -494,7 +542,10 @@ forem fornecidos.
 - IME/composição e seleção em limites vazios permanecem limitados em casos complexos.
 - Não há registro ou incorporação administrada de fontes; o preflight depende das
   fontes instaladas e mantém `document.fonts.ready` como barreira.
-- Não há órfãs, viúvas, hifenização nem regras editoriais de bloco.
+- Hifenização e controle de órfãs/viúvas cobrem português (`hyphen`, patterns
+  `pt`) com um mínimo de duas linhas por quebra; não há justificação
+  microtipográfica (subpixel/kerning por linha) nem outras regras editoriais de
+  bloco (keep-with-next, viúvas de título).
 - Reflow continua integral e spreads fora da viewport não são virtualizados.
 - Assets são hidratados integralmente em memória ao abrir o container `.livro`.
 - Objetos continuam fixos à página, sem crop, rotação ou âncora na história.

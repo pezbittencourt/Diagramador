@@ -7,6 +7,7 @@ import { PDFDocument } from "pdf-lib";
 import { detectImageMimeType, type SupportedImageMime } from "./imageFiles.js";
 import { countPdfPages, writePdfFileAtomic } from "./pdfFiles.js";
 import { APP_NAME, APP_VERSION } from "./appMetadata.js";
+import { applyPdfXOutputIntent } from "./pdfOutputIntent.js";
 
 const MAX_CSS_BYTES = 4 * 1024 * 1024;
 const MAX_HTML_CHUNK_BYTES = 64 * 1024 * 1024;
@@ -395,24 +396,30 @@ async function appendPdfBuffer(merged: PDFDocument, buffer: Buffer): Promise<voi
   for (const page of pages) merged.addPage(page);
 }
 
-async function saveMergedPdf(merged: PDFDocument, title: string): Promise<Buffer> {
+async function saveMergedPdf(merged: PDFDocument, title: string, iccProfile: Uint8Array): Promise<Buffer> {
   merged.setTitle(title);
   merged.setCreator(PDF_APPLICATION_NAME);
   merged.setProducer(PDF_APPLICATION_NAME);
+  applyPdfXOutputIntent(merged, iccProfile, title, PDF_APPLICATION_NAME);
   return Buffer.from(await merged.save({ useObjectStreams: false }));
 }
 
-export async function mergePdfBuffers(buffers: readonly Buffer[], title: string): Promise<Buffer> {
+export async function mergePdfBuffers(
+  buffers: readonly Buffer[],
+  title: string,
+  iccProfile: Uint8Array,
+): Promise<Buffer> {
   if (!buffers.length) throw new Error("Nenhum lote PDF foi produzido para mesclagem.");
   const merged = await PDFDocument.create({ updateMetadata: false });
   for (const buffer of buffers) await appendPdfBuffer(merged, buffer);
-  return saveMergedPdf(merged, title);
+  return saveMergedPdf(merged, title, iccProfile);
 }
 
 export async function renderPdfChunksAndWriteFile(
   createWindow: PdfRenderWindowFactory,
   filePath: string,
   rawRequest: PdfExportRequest | ValidatedPdfExportRequest,
+  iccProfile: Uint8Array,
   options: PdfChunkRenderOptions = {},
 ): Promise<PdfRenderResult> {
   const request = validatePdfExportRequest(rawRequest);
@@ -498,7 +505,7 @@ export async function renderPdfChunksAndWriteFile(
   }
 
   if (!renderedChunkCount) throw new Error("Nenhum lote PDF foi produzido para mesclagem.");
-  const merged = await saveMergedPdf(mergedDocument, request.title);
+  const merged = await saveMergedPdf(mergedDocument, request.title, iccProfile);
   const pageCount = countPdfPages(merged);
   if (pageCount !== request.expectedPageCount) {
     throw new Error(

@@ -9,6 +9,7 @@ import {
 } from "electron";
 import path from "node:path";
 import os from "node:os";
+import { readFile } from "node:fs/promises";
 import { importManuscriptFile } from "./manuscriptFiles.js";
 import { importImageFile } from "./imageFiles.js";
 import { configureLogging, logError } from "./appLog.js";
@@ -409,6 +410,8 @@ ipcMain.handle("pdf:export", async (event, rawRequest: PdfExportRequest) => {
     const filePath = destination.filePath.toLowerCase().endsWith(".pdf")
       ? destination.filePath
       : `${destination.filePath}.pdf`;
+    const { sRgbIccProfile } = resolveRuntimeResourcePaths(__dirname, process.resourcesPath, app.isPackaged);
+    const iccProfile = await readFile(sRgbIccProfile);
     const result = await renderPdfChunksAndWriteFile(
       () => new BrowserWindow({
         width: 1024,
@@ -424,6 +427,7 @@ ipcMain.handle("pdf:export", async (event, rawRequest: PdfExportRequest) => {
       }),
       filePath,
       request,
+      iccProfile,
     );
     return {
       canceled: false,
@@ -584,6 +588,7 @@ if (!hasSingleInstanceLock) {
           userData: app.getPath("userData"),
           renderer: resources.renderer,
           preload: resources.preload,
+          sRgbIccProfile: resources.sRgbIccProfile,
         });
         app.exit(0);
       } catch (error) {

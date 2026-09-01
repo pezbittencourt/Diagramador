@@ -47,6 +47,8 @@ function chunkRequest(htmlChunks: string[], expectedPageCount: number): PdfExpor
   };
 }
 
+const FAKE_ICC_PROFILE = new Uint8Array([0x00, 0x01, 0x02, 0x03]);
+
 async function pdfWithPageWidths(widths: number[]): Promise<Buffer> {
   const document = await PDFDocument.create();
   for (const width of widths) document.addPage([width, 300]);
@@ -172,6 +174,7 @@ describe("renderAndWritePdf", () => {
       createWindow,
       "C:\\exports\\livro.pdf",
       chunkRequest([htmlChunk(2, "primeiro"), htmlChunk(1, "segundo", 3)], 3),
+      FAKE_ICC_PROFILE,
       { chunkTimeoutMs: 1_000 },
     );
 
@@ -217,6 +220,7 @@ describe("renderAndWritePdf", () => {
       () => window,
       "C:\\exports\\livro.pdf",
       chunkRequest([htmlChunk(1, "primeiro"), htmlChunk(1, "segundo", 2)], 2),
+      FAKE_ICC_PROFILE,
       { chunkTimeoutMs: 1_000 },
     )).rejects.toBe(printError);
 
@@ -234,6 +238,7 @@ describe("renderAndWritePdf", () => {
       () => window,
       "C:\\exports\\livro.pdf",
       chunkRequest([htmlChunk(1, "lento")], 1),
+      FAKE_ICC_PROFILE,
       { chunkTimeoutMs: 10 },
     )).rejects.toThrow("lote PDF 1 excedeu 1 segundos");
 
@@ -255,6 +260,7 @@ describe("renderAndWritePdf", () => {
       () => window,
       "C:\\exports\\livro.pdf",
       chunkRequest([htmlChunk(1, "retry")], 1),
+      FAKE_ICC_PROFILE,
     );
 
     expect(window.loadURL).toHaveBeenCalledTimes(3);
@@ -294,6 +300,7 @@ describe("renderAndWritePdf", () => {
       () => window,
       "C:\\exports\\livro.pdf",
       request,
+      FAKE_ICC_PROFILE,
       { chunkTimeoutMs: 1_000 },
     );
 
@@ -342,6 +349,7 @@ describe("renderAndWritePdf", () => {
         () => window,
         "C:\\exports\\livro.pdf",
         chunkRequest([htmlChunk(1, "falha-dupla")], 1),
+        FAKE_ICC_PROFILE,
         {
           chunkTimeoutMs: 1_000,
           removePrintDirectory: async (directory) => {
